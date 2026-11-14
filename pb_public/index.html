@@ -23,6 +23,7 @@
       </div>
     </div>
     <div class="actions">
+      <button id="selmode" class="btn" title="Selectievakjes aan- of uitzetten">Selecteren</button>
       <button id="pick" class="btn primary">Uploaden</button>
       <input id="file" type="file" accept="image/*" multiple hidden>
       <button id="refresh" class="btn" title="Verversen">Verversen</button>
@@ -43,9 +44,10 @@
 
   <div id="bulk" class="bulk hidden">
     <span><b id="selcount">0</b> geselecteerd</span>
-    <input id="bulktag" class="input" placeholder="tag toevoegen…">
+    <input id="bulktag" class="input" placeholder="tag…">
     <button id="applytag" class="btn">Tag toepassen</button>
-    <button id="delsel" class="btn danger">Verwijderen</button>
+    <button id="deltag" class="btn">Tag verwijderen</button>
+    <button id="delsel" class="btn danger">Wallpapers verwijderen</button>
     <button id="clearsel" class="btn">Selectie wissen</button>
   </div>
 
