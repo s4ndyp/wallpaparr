@@ -57,6 +57,7 @@ func runPlayer(server, device string, monitoren []string, poll time.Duration, st
 				Device:       device,
 				Monitor:      m,
 				Index:        n,
+				Alias:        monitorLabel(m, n),
 				LaatstGewien: now,
 			}
 			if err := screenUpsert(server, s); err != nil {

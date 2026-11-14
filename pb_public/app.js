@@ -14,6 +14,9 @@ const RATIOS = [
 ];
 const RATIO_TOL = 0.10; // 10% afwijking valt nog in dezelfde groep
 
+// gebruiksteller: hoe vaak elke afbeelding is toegepast (gevuld door screens.js)
+window.__wpGebruik = window.__wpGebruik || new Map();
+
 const state = {
   items: [],
   selected: new Set(),
@@ -410,6 +413,18 @@ function render() {
       res.textContent = `${r.width}×${r.height}`;
       thumb.appendChild(res);
     }
+
+    // gebruiksteller: laat zien hoe vaak deze afbeelding al is toegepast
+    // (zo zie je of de rotatie random genoeg is)
+    const gebruikt = (window.__wpGebruik && window.__wpGebruik.get(r.id)) || 0;
+    const gb = document.createElement("span");
+    gb.className = "gebruik" + (gebruikt ? "" : " nul");
+    gb.textContent = gebruikt + "×";
+    gb.title = gebruikt
+      ? `${gebruikt}× toegepast volgens de geschiedenis`
+      : "nog nooit toegepast";
+    thumb.appendChild(gb);
+
     card.appendChild(thumb);
 
     const meta = document.createElement("div");

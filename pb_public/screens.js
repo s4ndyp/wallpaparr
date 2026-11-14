@@ -39,6 +39,18 @@ function playlistVan(s) {
   return (s.expand && s.expand.playlist) || null;
 }
 
+// schermNaam: de alias is leidend — die zet je hier zelf; anders een leesbare terugval.
+function schermNaam(s) {
+  if (s.alias) return s.alias;
+  const samen = ((s.device || "") + " " + (s.monitor || "")).trim();
+  return samen || s.key || "scherm";
+}
+
+// gebruikVan: hoe vaak een afbeelding is toegepast (gevuld door laadGebruik).
+function gebruikVan(id) {
+  return (window.__wpGebruik && window.__wpGebruik.get(id)) || 0;
+}
+
 /* ---------- roteren (zelfde regels als de server) ---------- */
 
 // kiesVoorPlaylist zoekt een kandidaat voor deze playlist; handmatige selectie gaat voor.
@@ -85,7 +97,7 @@ async function nuTonen(s, wallpaperId) {
   await zetScherm(
     s,
     { huidige_wallpaper: wallpaperId, bron: "handmatig", gewijzigd: new Date().toISOString() },
-    "Op " + (s.monitor || s.key) + " gezet (blijft staan)"
+    "Op " + schermNaam(s) + " gezet (blijft staan)"
   );
 }
 
@@ -162,8 +174,8 @@ function schermHTML(s) {
   return `
   <div class="scherm" data-id="${s.id}">
     <div class="scherm-kop">
-      <b>${escapeHtml(s.device || "?")}</b>
-      <span class="sub">${escapeHtml(s.monitor || "")} #${s.index ?? ""} · ${s.width || "?"}×${s.height || "?"}</span>
+      <b>${escapeHtml(schermNaam(s))}</b>
+      <span class="sub">${escapeHtml(s.device || "?")} · ${escapeHtml(s.monitor || "")} #${s.index ?? ""} · ${s.width || "?"}×${s.height || "?"}</span>
       <span class="stip ${online ? "aan" : "uit"}" title="${kleurOnline(s)}">${online ? "online" : "offline"}</span>
     </div>
     <div class="scherm-nu">
@@ -181,6 +193,10 @@ function schermHTML(s) {
       <label>Interval <input type="number" min="0" step="1" class="input mini" data-veld="interval" value="${pl.interval ?? 30}"> min (0 = niet automatisch)</label>
       <label>Tags <input type="text" class="input" data-veld="tags" value="${escapeHtml(pl.tags || "")}" placeholder="leeg = alle tags"></label>
       <div class="ratio-rij">${ratioVakjes(pl, "ratio")}</div>
+      <div class="alias-rij">
+        <label>Naam <input type="text" class="input" data-veld="alias" value="${escapeHtml(s.alias || "")}" placeholder="${escapeHtml((s.monitor || "scherm") + " (#" + (s.index ?? 0) + ")")}"></label>
+        <button class="btn klein" data-actie="alias">Naam bewaren</button>
+      </div>
       <div class="scherm-knoppen">
         <span class="sub" id="sel-info-${s.id}">${(pl.wallpapers || []).length ? (pl.wallpapers || []).length + " vaste afbeelding(en)" : "selectie via tags/verhoudingen"}</span>
         <button class="btn klein" data-actie="opslaan">Opslaan</button>
@@ -261,6 +277,9 @@ document.addEventListener("click", async (e) => {
       interval: parseInt(leesVeld("interval"), 10) || 0,
       wallpapers: s._selectie || undefined,
     });
+  } else if (actie === "alias") {
+    const naam = leesVeld("alias").trim();
+    await zetScherm(s, { alias: naam }, naam ? `Naam gewijzigd in "${naam}"` : "Naam gewist");
   } else if (actie === "wissel") {
     await wisselNu(s);
   } else if (actie === "rotatie") {
@@ -281,6 +300,63 @@ document.addEventListener("click", async (e) => {
 const schermenKnop = $("#schermen-vernieuw");
 if (schermenKnop) schermenKnop.onclick = () => laadSchermen();
 
+/* ---------- schermkiezer: op welk scherm moet deze afbeelding? ---------- */
+
+let schermKiezer = null;
+
+function sluitSchermKiezer() {
+  if (schermKiezer) {
+    schermKiezer.remove();
+    schermKiezer = null;
+  }
+}
+
+// toonSchermKiezer opent onder de knop een lijst met de schermen (bij hun alias).
+function toonSchermKiezer(anker, wpId) {
+  sluitSchermKiezer();
+  const box = document.createElement("div");
+  box.className = "schermkiezer";
+  box.dataset.wp = wpId;
+  box.innerHTML =
+    '<div class="kiezer-kop">Op welk scherm tonen?</div>' +
+    schermen
+      .map(
+        (s) => `<button class="kiezer-rij" data-scherm="${s.id}">
+          <b>${escapeHtml(schermNaam(s))}</b>
+          <span class="sub">${escapeHtml(s.device || "")} ${escapeHtml(s.monitor || "")} #${s.index ?? ""} · ${s.width || "?"}×${s.height || "?"}${isOnline(s) ? "" : " · offline"}</span>
+        </button>`
+      )
+      .join("");
+  document.body.appendChild(box);
+
+  const r = anker.getBoundingClientRect();
+  const breed = document.documentElement.clientWidth;
+  box.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.scrollX + breed - box.offsetWidth - 8)) + "px";
+  box.style.top = r.bottom + window.scrollY + 4 + "px";
+  schermKiezer = box;
+
+  const weg = (ev) => {
+    if (ev && ev.type === "keydown" && ev.key !== "Escape") return;
+    sluitSchermKiezer();
+    document.removeEventListener("click", weg, true);
+    document.removeEventListener("keydown", weg, true);
+  };
+  setTimeout(() => {
+    document.addEventListener("click", weg, true);
+    document.addEventListener("keydown", weg, true);
+  }, 0);
+}
+
+// klik in de kiezer: zet de afbeelding op dat scherm
+document.addEventListener("click", async (e) => {
+  const rij = e.target.closest(".schermkiezer [data-scherm]");
+  if (!rij) return;
+  const wpId = rij.closest(".schermkiezer").dataset.wp;
+  const s = schermen.find((x) => x.id === rij.dataset.scherm);
+  sluitSchermKiezer();
+  if (s) await nuTonen(s, wpId);
+});
+
 // "toon nu op scherm" vanaf een wallpaper-kaart
 document.addEventListener("click", async (e) => {
   const knop = e.target.closest("[data-toonscherm]");
@@ -288,13 +364,35 @@ document.addEventListener("click", async (e) => {
   const wpId = knop.dataset.toonscherm;
   if (!schermen.length) return toast("Geen schermen bekend — start eerst de client", "err");
   if (schermen.length === 1) return nuTonen(schermen[0], wpId);
-  const keuze = prompt(
-    "Op welk scherm?\n" + schermen.map((s, i) => `${i + 1}) ${s.device} ${s.monitor} #${s.index}`).join("\n"),
-    "1"
-  );
-  const idx = parseInt(keuze, 10);
-  if (!isNaN(idx) && idx >= 1 && idx <= schermen.length) await nuTonen(schermen[idx - 1], wpId);
+  toonSchermKiezer(knop, wpId);
 });
 
+/* ---------- gebruiksteller (hoe vaak is een afbeelding toegepast?) ---------- */
+
+async function laadGebruik() {
+  try {
+    const nieuw = new Map();
+    let pagina = 1;
+    let paginas = 1;
+    while (pagina <= paginas && pagina <= 20) {
+      const d = await apiJSON(`${HIS}?perPage=500&page=${pagina}&fields=wallpaper`);
+      for (const h of d.items || []) {
+        const id = h.wallpaper;
+        if (id) nieuw.set(id, (nieuw.get(id) || 0) + 1);
+      }
+      paginas = d.totalPages || 1;
+      pagina++;
+    }
+    const m = window.__wpGebruik || (window.__wpGebruik = new Map());
+    m.clear();
+    for (const [k, v] of nieuw) m.set(k, v);
+  } catch (e) {
+    // tellen is een extraatje; een fout mag de lijst niet blokkeren
+  }
+  if (typeof render === "function") render();
+}
+
 laadSchermen();
+laadGebruik();
 setInterval(laadSchermen, 15000);
+setInterval(laadGebruik, 60000);

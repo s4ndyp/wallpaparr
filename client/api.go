@@ -37,6 +37,7 @@ type Screen struct {
 	Width                  int    `json:"width,omitempty"`
 	Height                 int    `json:"height,omitempty"`
 	LaatstGewien           string `json:"laatst_gezien,omitempty"`
+	Alias                  string `json:"alias,omitempty"`
 	Playlist               string `json:"playlist,omitempty"`
 	HuidigeWallpaper       string `json:"huidige_wallpaper,omitempty"`
 	Bron                   string `json:"bron,omitempty"`
@@ -268,9 +269,13 @@ func screenUpsert(server string, s Screen) error {
 		return err
 	}
 	if bestaand == nil {
-		return postScreen(server, s)
+		return postScreen(server, s) // de alias gaat mee als leesbare standaard
 	}
 	s.ID = bestaand.ID
+	// een alias die de gebruiker in de web-UI zette nooit overschrijven
+	if bestaand.Alias != "" {
+		s.Alias = ""
+	}
 	return patchScreen(server, s.ID, s)
 }
 

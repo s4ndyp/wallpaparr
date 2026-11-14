@@ -32,6 +32,7 @@ const WP = [
 const SCHERMEN = [
   {
     id: "sch1", collectionId: "c2", key: "SandmanPC|DELD128|0", device: "SandmanPC", monitor: "DELD128", index: 0,
+    alias: "Bureau links",
     width: 3808, height: 1280, laatst_gezien: nu, playlist: "pl1", huidige_wallpaper: "wp1", bron: "rotatie", gewijzigd: nu,
     expand: {
       playlist: { id: "pl1", naam: "scherm 1", tags: "natuur", ratios: "16:9", interval: 15, actief: true, wallpapers: [] },
@@ -40,6 +41,7 @@ const SCHERMEN = [
   },
   {
     id: "sch2", collectionId: "c2", key: "SandmanPC|AOC2702|1", device: "SandmanPC", monitor: "AOC2702", index: 1,
+    alias: "Ultrawide",
     width: 3360, height: 1440, laatst_gezien: oud, playlist: "", huidige_wallpaper: "wp3", bron: "handmatig", gewijzigd: nu,
     expand: { huidige_wallpaper: WP[2] },
   },
@@ -176,15 +178,46 @@ const pl = () => plPati().pop() || null;
 check("vaste selectie wordt in de playlist gezet", pl() && Array.isArray(pl().body.wallpapers) && pl().body.wallpapers.length === 1,
   JSON.stringify(pl() ? pl().body.wallpapers : null));
 
-/* ---------- vanaf een wallpaper-kaart naar een scherm sturen ---------- */
+/* ---------- alias van een scherm ---------- */
+check("paneel toont de alias i.p.v. het apparaatpad", kaart("sch1").querySelector(".scherm-kop b").textContent === "Bureau links",
+  kaart("sch1").querySelector(".scherm-kop b").textContent);
+check("zonder alias valt de kaart terug op apparaat + monitor",
+  !!kaart("sch1").querySelector('[data-veld="alias"]'),
+  "aliasveld aanwezig");
+
+patches.length = 0;
+kaart("sch1").querySelector('[data-veld="alias"]').value = "Bureau";
+knop("sch1", "alias").click();
+await tick();
+const aliasPatch = patches.find((p) => p.url.endsWith("sch1") && p.body && p.body.alias === "Bureau");
+check("naam bewaren stuurt een PATCH met het alias-veld", !!aliasPatch, JSON.stringify(aliasPatch ? aliasPatch.body : {}));
+
+/* ---------- gebruiksteller op de tegels ---------- */
+await tick(80);
+const tegel = (titel) => q(".card").find((c) => c.querySelector(".title").textContent === titel);
+const badge = (titel) => { const c = tegel(titel); return c && c.querySelector(".gebruik"); };
+check("gebruikte afbeelding toont de teller (1×)", !!badge("Mooi beeld") && badge("Mooi beeld").textContent === "1×",
+  badge("Mooi beeld") && badge("Mooi beeld").textContent);
+check("ongebruikte afbeelding toont 0×", !!badge("Tweede") && badge("Tweede").textContent === "0×",
+  badge("Tweede") && badge("Tweede").textContent);
+
+/* ---------- vanaf een wallpaper-kaart naar een scherm sturen (schermkiezer) ---------- */
 patches.length = 0;
 const kaartKnop = q(".card .icon").find((b) => b.dataset.toonscherm);
 check("elke wallpaper heeft een 'toon op scherm'-knop", !!kaartKnop);
 kaartKnop.click();
 await tick();
+const kiezer = $(".schermkiezer");
+check("schermkiezer opent met de schermen bij hun alias",
+  !!kiezer && kiezer.textContent.includes("Ultrawide") && kiezer.textContent.includes("Bureau links"),
+  kiezer ? kiezer.textContent.replace(/\s+/g, " ").slice(0, 90) : "geen kiezer");
+check("kiezer toont ook apparaat/scherm als ondertitel", !!kiezer && kiezer.textContent.includes("AOC2702"));
+kiezer.querySelector('[data-scherm="sch2"]').click();
+await tick();
 const pin = patches.find((p) => p.url.endsWith("sch2") && p.body && p.body.bron === "handmatig");
-check("keuze 2 uit de prompt pint de afbeelding op scherm 2", !!pin && !!pin.body.huidige_wallpaper,
+check("keuze uit de kiezer pint de afbeelding op dat scherm", !!pin && !!pin.body.huidige_wallpaper,
   JSON.stringify(pin ? pin.body : {}));
+check("de kiezer sluit na de keuze", !$(".schermkiezer"));
 
 let fout = 0;
 for (const r of ok) {

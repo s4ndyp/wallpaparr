@@ -801,6 +801,7 @@ func poller() {
 				Device:       device,
 				Monitor:      m,
 				Index:        n,
+				Alias:        monitorLabel(m, n),
 				LaatstGewien: nu,
 			}
 			if err := screenUpsert(cfg.Server, s); err != nil {
