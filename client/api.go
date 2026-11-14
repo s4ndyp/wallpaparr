@@ -34,12 +34,13 @@ type listResponse struct {
 
 // Config staat in het gebruikersconfiguratiemapje.
 type Config struct {
-	Server     string `json:"server"`
-	Tag        string `json:"tag"`
-	PerMonitor bool   `json:"per_monitor"`
-	Random     bool   `json:"random"`
-	Every      string `json:"every"`
-	Position   string `json:"position"`
+	Server      string `json:"server"`
+	Tag         string `json:"tag"`
+	PerMonitor  bool   `json:"per_monitor"`
+	Random      bool   `json:"random"`
+	StartHidden bool   `json:"start_hidden"`
+	Every       string `json:"every"`
+	Position    string `json:"position"`
 }
 
 // Save schrijft de configuratie weg (de GUI gebruikt dit); vult defaults in.

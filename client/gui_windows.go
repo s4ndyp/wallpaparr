@@ -17,7 +17,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +36,7 @@ var icoData []byte
 var (
 	// user32 komt uit apply_windows.go (zelfde pakket); hier alleen wat daar niet staat
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
+	shell32  = syscall.NewLazyDLL("shell32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
 
@@ -54,13 +57,13 @@ var (
 	pAppendMenuW           = user32.NewProc("AppendMenuW")
 	pTrackPopupMenu        = user32.NewProc("TrackPopupMenu")
 	pDestroyMenu           = user32.NewProc("DestroyMenu")
-	pShellNotifyIconW      = user32.NewProc("Shell_NotifyIconW")
+	pShellNotifyIconW      = shell32.NewProc("Shell_NotifyIconW") // shell32, niet user32!
 	pLoadIconW             = user32.NewProc("LoadIconW")
 	pCreateIconFromRes     = user32.NewProc("CreateIconFromResourceEx")
 	pGetWindowTextW        = user32.NewProc("GetWindowTextW")
 	pSetWindowTextW        = user32.NewProc("SetWindowTextW")
 	pSendMessageW          = user32.NewProc("SendMessageW")
-	pGetModuleHandleW      = user32.NewProc("GetModuleHandleW")
+	pGetModuleHandleW      = kernel32.NewProc("GetModuleHandleW") // kernel32, niet user32!
 	pMessageBoxW           = user32.NewProc("MessageBoxW")
 	pCreateFontW           = gdi32.NewProc("CreateFontW")
 	pCreateMutexW          = kernel32.NewProc("CreateMutexW")
@@ -141,6 +144,7 @@ const (
 	idMinutes
 	idChkMonitor
 	idChkRandom
+	idChkHidden
 	idStatus
 	idPosition
 	idSave
@@ -214,7 +218,14 @@ type notifyIconData struct {
 	HBalloonIcon     uintptr
 }
 
+// call roept een Win32-functie aan. Ontbreekt de functie in de DLL (verkeerde
+// DLL gekozen), dan loggen we dat en geven we 0 terug in plaats van een panic die
+// het hele programma meesleept.
 func call(proc *syscall.LazyProc, args ...uintptr) uintptr {
+	if err := proc.Find(); err != nil {
+		guiLog("Win32-functie niet gevonden: %s (%v) — verkeerde DLL?", proc.Name, err)
+		return 0
+	}
 	r, _, _ := proc.Call(args...)
 	return r
 }
@@ -230,6 +241,25 @@ func u16(s string) *uint16 {
 func putStr(dst []uint16, s string) {
 	src, _ := syscall.UTF16FromString(s)
 	copy(dst, src)
+}
+
+// guiLog schrijft naar %LOCALAPPDATA%\wallpaparr\gui.log — de tray-variant heeft
+// geen consolevenster, dus dit is de plek waar fouten terechtkomen.
+func guiLog(format string, args ...any) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return
+	}
+	dir = filepath.Join(dir, "wallpaparr")
+	if os.MkdirAll(dir, 0o755) != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "gui.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s  %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
 }
 
 func getText(h uintptr) string {
@@ -260,6 +290,7 @@ type guiState struct {
 	editMinutes uintptr
 	chkMonitor  uintptr
 	chkRandom   uintptr
+	chkHidden   uintptr
 	cmbPosition uintptr
 	lblStatus   uintptr
 }
@@ -312,7 +343,11 @@ func trayAdd(status string) {
 		nid.UCallbackMessage = trayMsg
 		nid.HIcon = trayHicon
 		putStr(nid.SzTip[:], "Wallpaparr — "+status)
-		call(pShellNotifyIconW, nimAdd, uintptr(unsafe.Pointer(nid)))
+		if r := call(pShellNotifyIconW, nimAdd, uintptr(unsafe.Pointer(nid))); r == 0 {
+			guiLog("tray-icoon toevoegen mislukt (meldingenbal onbereikbaar in deze sessie?)")
+		} else {
+			guiLog("tray-icoon toegevoegd")
+		}
 	})
 }
 
@@ -497,8 +532,13 @@ func maakControls() {
 
 	g.chkMonitor = makeControl("BUTTON", "Per monitor een andere wallpaper", bsAutoCheckBox|wsTabStop, 16, 154, 260, 22, idChkMonitor)
 	g.chkRandom = makeControl("BUTTON", "Willekeurige keuze", bsAutoCheckBox|wsTabStop, 290, 154, 170, 22, idChkRandom)
+	g.chkHidden = makeControl("BUTTON", "Bij opstarten alleen in de systeembalk (geen venster)", bsAutoCheckBox|wsTabStop, 16, 178, 444, 22, idChkHidden)
 	call(pSendMessageW, g.chkMonitor, 0x0030, vet, 1)
 	call(pSendMessageW, g.chkRandom, 0x0030, vet, 1)
+	call(pSendMessageW, g.chkHidden, 0x0030, vet, 1)
+	if cfg.StartHidden {
+		call(pSendMessageW, g.chkHidden, bmSetCheck, bstChecked, 0)
+	}
 	if cfg.PerMonitor {
 		call(pSendMessageW, g.chkMonitor, bmSetCheck, bstChecked, 0)
 	}
@@ -506,14 +546,14 @@ func maakControls() {
 		call(pSendMessageW, g.chkRandom, bmSetCheck, bstChecked, 0)
 	}
 
-	btnSave := makeControl("BUTTON", "Opslaan en toepassen", bsPushButton|wsTabStop, 16, 186, 155, 28, idSave)
-	btnNow := makeControl("BUTTON", "Nu wisselen", bsPushButton|wsTabStop, 180, 186, 110, 28, idApplyNow)
-	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 299, 186, 161, 28, idTest)
+	btnSave := makeControl("BUTTON", "Opslaan en toepassen", bsPushButton|wsTabStop, 16, 210, 155, 28, idSave)
+	btnNow := makeControl("BUTTON", "Nu wisselen", bsPushButton|wsTabStop, 180, 210, 110, 28, idApplyNow)
+	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 299, 210, 161, 28, idTest)
 	for _, b := range []uintptr{btnSave, btnNow, btnTest} {
 		call(pSendMessageW, b, 0x0030, vet, 1)
 	}
 
-	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 224, 444, 90, idStatus)
+	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 248, 444, 90, idStatus)
 	call(pSendMessageW, g.lblStatus, 0x0030, vet, 1)
 }
 
@@ -529,6 +569,7 @@ func readForm() Config {
 	}
 	cfg.PerMonitor = call(pSendMessageW, g.chkMonitor, bmGetCheck, 0, 0) == bstChecked
 	cfg.Random = call(pSendMessageW, g.chkRandom, bmGetCheck, 0, 0) == bstChecked
+	cfg.StartHidden = call(pSendMessageW, g.chkHidden, bmGetCheck, 0, 0) == bstChecked
 	sel := int(call(pSendMessageW, g.cmbPosition, cbGetCurSel, 0, 0))
 	if sel >= 0 && sel < len(posities) {
 		cfg.Position = posities[sel]
@@ -625,6 +666,17 @@ func scheduler() {
 		stelIntervalIn(d)
 	}
 
+	// panics in de achtergrond mogen de app niet stil laten verdwijnen
+	veilig := func(naam string, f func()) {
+		defer func() {
+			if r := recover(); r != nil {
+				guiLog("PANIC in %s: %v\n%s", naam, r, debug.Stack())
+				g.setStatus("interne fout bij " + naam + " — zie gui.log")
+			}
+		}()
+		f()
+	}
+
 	doe := func() {
 		cfg := g.getCfg()
 		if cfg.Server == "" {
@@ -634,38 +686,42 @@ func scheduler() {
 		g.setStatus("bezig…")
 		rec, err := applyChoice(cfg, cfg.Random, lastID)
 		if err != nil {
+			guiLog("wisselen mislukt: %v", err)
 			g.setStatus("fout: " + err.Error())
 			return
 		}
 		lastID = rec.ID
+		guiLog("gezet: %s (%dx%d) id=%s", rec.Title, rec.Width, rec.Height, rec.ID)
 		g.setStatus(fmt.Sprintf("gezet: %s (%dx%d)", rec.Title, rec.Width, rec.Height))
 	}
 
 	// eerste toepassing meteen
-	doe()
+	veilig("eerste toepassing", doe)
 
 	for {
 		select {
 		case c := <-g.cmds:
 			switch c.kind {
-			case "apply":
-				doe()
-			case "next":
-				doe()
+			case "apply", "next":
+				veilig("wisselen", doe)
 			case "test":
-				cfg := g.getCfg()
-				g.setStatus("verbinding testen…")
-				recs, err := fetchRecords(cfg.Server, cfg.Tag)
-				if err != nil {
-					g.setStatus("verbinding mislukt: " + err.Error())
-				} else {
-					g.setStatus(fmt.Sprintf("verbinding ok — %d wallpaper(s) op de server", len(recs)))
-				}
+				veilig("verbinding testen", func() {
+					cfg := g.getCfg()
+					g.setStatus("verbinding testen…")
+					recs, err := fetchRecords(cfg.Server, cfg.Tag)
+					if err != nil {
+						guiLog("verbindingstest mislukt: %v", err)
+						g.setStatus("verbinding mislukt: " + err.Error())
+					} else {
+						guiLog("verbindingstest ok: %d wallpapers", len(recs))
+						g.setStatus(fmt.Sprintf("verbinding ok — %d wallpaper(s) op de server", len(recs)))
+					}
+				})
 			case "interval":
 				stelIntervalIn(c.every)
 			}
 		case <-tick:
-			doe()
+			veilig("wisselen", doe)
 		}
 	}
 }
@@ -675,6 +731,15 @@ func scheduler() {
 func runGUI() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+
+	// een panic in de GUI of de message loop moet in het logboek belanden, niet
+	// stil het proces laten verdwijnen (de tray-variant heeft geen console)
+	defer func() {
+		if r := recover(); r != nil {
+			guiLog("PANIC in runGUI: %v\n%s", r, debug.Stack())
+		}
+		guiLog("afgesloten")
+	}()
 
 	// voorkom een tweede tray-icoon
 	if r, _, e := pCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(u16("WallpaparrTrayMutex")))); r == 0 {
@@ -700,6 +765,8 @@ func runGUI() error {
 		cfg.Position = "fill"
 	}
 	g.setCfg(cfg)
+	guiLog("start: server=%q tags=%q interval=%q per_monitor=%v random=%v verborgen=%v",
+		cfg.Server, cfg.Tag, cfg.Every, cfg.PerMonitor, cfg.Random, cfg.StartHidden)
 
 	icon := loadIcon()
 	hInst := call(pGetModuleHandleW, 0)
@@ -720,7 +787,7 @@ func runGUI() error {
 	hwnd := call(pCreateWindowExW, 0,
 		uintptr(unsafe.Pointer(klasse)),
 		uintptr(unsafe.Pointer(u16("Wallpaparr — wallpaper-client"))),
-		style, uintptr(cwUseDefault), uintptr(cwUseDefault), 490, 370, 0, 0, hInst, 0)
+		style, uintptr(cwUseDefault), uintptr(cwUseDefault), 490, 400, 0, 0, hInst, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("venster maken mislukt")
 	}
@@ -730,7 +797,11 @@ func runGUI() error {
 	donker := int32(1)
 	call(pDwmSetWindowAttribute, hwnd, 20, uintptr(unsafe.Pointer(&donker)), uintptr(unsafe.Sizeof(donker)))
 
-	call(pShowWindow, hwnd, swShow)
+	if !cfg.StartHidden {
+		call(pShowWindow, hwnd, swShow)
+	} else {
+		call(pShowWindow, hwnd, swHide)
+	}
 	trayAdd("klaar")
 	go scheduler()
 

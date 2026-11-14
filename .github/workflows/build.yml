@@ -52,14 +52,16 @@ jobs:
           tags: ${{ steps.tag.outputs.tags }}
 
   client:
-    name: client-${{ matrix.goos }}-${{ matrix.goarch }}
+    name: client-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { goos: windows, goarch: amd64, ext: ".exe" }
-          - { goos: windows, goarch: arm64, ext: ".exe" }
+          - { goos: windows, goarch: amd64, ext: ".exe", gui: "0", suffix: "" }
+          - { goos: windows, goarch: amd64, ext: ".exe", gui: "1", suffix: "-tray" }
+          - { goos: windows, goarch: arm64, ext: ".exe", gui: "0", suffix: "" }
+          - { goos: windows, goarch: arm64, ext: ".exe", gui: "1", suffix: "-tray" }
           - { goos: linux, goarch: amd64, ext: "" }
           - { goos: linux, goarch: arm64, ext: "" }
           - { goos: darwin, goarch: amd64, ext: "" }
@@ -85,14 +87,18 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          GUI: ${{ matrix.gui }}
         run: |
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w" \
-            -o "dist/wallpaparr-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" .
+          # de tray-variant krijgt geen consolevenster (-H=windowsgui)
+          LDFLAGS="-s -w"
+          if [ "$GUI" = "1" ]; then LDFLAGS="-s -w -H=windowsgui"; fi
+          go build -trimpath -ldflags "$LDFLAGS" \
+            -o "dist/wallpaparr-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}${{ matrix.ext }}" .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wallpaparr-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: wallpaparr-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
           path: client/dist/*
           if-no-files-found: error
 

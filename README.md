@@ -56,10 +56,20 @@ omgevingsvariabele `WALLPAPARR_SERVER`.
 
 ### Windows tray-app (instellingen + systeembalk)
 
-Dubbelklik op `wallpaparr-windows-amd64.exe` (of `wallpaparr gui` in de console): je krijgt
-een instellingenvenster met server-URL, tags, interval (minuten), weergavemodus, per monitor
-en willekeurige keuze, plus de knoppen **Opslaan en toepassen**, **Nu wisselen** en
+Er zijn twee Windows-binaries:
+
+| Bestand | Waarvoor |
+|---|---|
+| `wallpaparr-windows-amd64.exe` | console-versie: alle CLI-opdrachten (`list`, `set`, `rotate`, …) én `gui` |
+| `wallpaparr-windows-amd64-tray.exe` | **geen consolevenster** — dubbelklik of zet hem in de opstartmap voor de tray-app |
+
+Dubbelklik (of `wallpaparr gui`): je krijgt een instellingenvenster met server-URL, tags,
+interval (minuten), weergavemodus, per monitor, willekeurige keuze en *bij opstarten alleen in
+de systeembalk*, plus de knoppen **Opslaan en toepassen**, **Nu wisselen** en
 **Verbinding testen**. Er is geen extra runtime of framework nodig.
+
+De tray-variant heeft geen console, dus fouten gaan naar
+`%LOCALAPPDATA%\wallpaparr\gui.log` (met tijdstempel: start, elke wissel, fouten en panics).
 
 - **Kruisje** = het venster verdwijnt naar de **systeembalk**; de client blijft draaien en
   wisselt volgens het interval.
