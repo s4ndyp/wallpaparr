@@ -2,6 +2,10 @@
 .github
 pb_data
 client
+tests
+node_modules
+package.json
+package-lock.json
 README.md
 .gitignore
 .dockerignore
