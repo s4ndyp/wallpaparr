@@ -9,3 +9,5 @@ package-lock.json
 # client-buildartefacten
 client/dist/
 client/client
+client/client.exe
+client/*.exe
