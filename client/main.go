@@ -218,7 +218,6 @@ func cmdSet(args []string, loop bool) {
 			return err
 		}
 		for _, r := range res {
-			laatste[r.Monitor] = r.Rec.ID
 			fmt.Printf("%-26s %s (%dx%d)\n", monitorLabel(r.Monitor, r.Index)+":",
 				r.Rec.Title, r.Rec.Width, r.Rec.Height)
 		}

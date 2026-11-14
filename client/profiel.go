@@ -184,7 +184,13 @@ func applyRound(cfg Config, random bool, laatste map[string]string) ([]resultaat
 			meldingen = append(meldingen, fmt.Sprintf("%s: geen wallpapers die aan %s voldoen", monitorLabel(m, i), profielOmschrijving(p)))
 			continue
 		}
-		kies := nextPick(kand, laatste[m], 1, random)[0]
+		// sleutel per monitorrij (niet per naam): bij drie identieke schermen moet
+		// elk scherm een andere afbeelding kunnen krijgen
+		sleutel := monitorLabel(m, i)
+		kies := nextPick(kand, laatste[sleutel], 1, random)[0]
+		if laatste != nil {
+			laatste[sleutel] = kies.ID
+		}
 		pad, err := download(cfg.Server, kies)
 		if err != nil {
 			meldingen = append(meldingen, fmt.Sprintf("%s: %v", monitorLabel(m, i), err))

@@ -860,7 +860,6 @@ func scheduler() {
 		}
 		var regels []string
 		for _, r := range res {
-			laatstePerMonitor[r.Monitor] = r.Rec.ID
 			guiLog("gezet op %s: %s (%dx%d) id=%s", monitorLabel(r.Monitor, r.Index),
 				r.Rec.Title, r.Rec.Width, r.Rec.Height, r.Rec.ID)
 			regels = append(regels, monitorLabel(r.Monitor, r.Index)+": "+r.Rec.Title)
