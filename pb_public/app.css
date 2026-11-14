@@ -178,6 +178,39 @@ body {
 }
 .taghulp div:hover, .taghulp div.on { background: rgba(242, 180, 92, 0.22); color: var(--tag-bright); }
 
+/* schermenpaneel (server bepaalt wat waar komt) */
+.paneel {
+  max-width: 1500px; margin: 0 auto 18px; background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px;
+}
+.paneel-kop { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.paneel-kop h2 { font-size: 15px; }
+.paneel-kop .sub { flex: 1; }
+.btn.klein { padding: 5px 10px; font-size: 13px; border-radius: 8px; }
+.schermen { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+.scherm { background: var(--bg-3); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.scherm-kop { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.stip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.stip.aan { color: var(--ok); border-color: rgba(158, 206, 106, .5); }
+.stip.uit { color: var(--dim); }
+.scherm-nu { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.scherm-thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: #0e1118; }
+.scherm-thumb.leeg { display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 11px; }
+.scherm-nu-tekst { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
+.scherm-nu-tekst b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scherm-nu-acties { display: flex; gap: 6px; flex-direction: column; }
+.scherm-instellingen { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--dim); }
+.scherm-instellingen .input { padding: 5px 9px; font-size: 13px; }
+.scherm-instellingen .input.mini { width: 64px; }
+.scherm-instellingen label { display: flex; align-items: center; gap: 6px; }
+.ratio-rij { display: flex; flex-wrap: wrap; gap: 8px; }
+.ratiovak { display: inline-flex; align-items: center; gap: 4px; color: var(--tag); font-size: 12.5px; }
+.scherm-knoppen { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.scherm-knoppen .sub { flex: 1; }
+.scherm-historie { margin-top: 8px; }
+.scherm-historie summary { cursor: pointer; color: var(--dim); font-size: 12.5px; }
+.historie-regel { font-size: 12.5px; padding: 3px 0; display: flex; gap: 8px; }
+
 /* meldingen */
 .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 9px; z-index: 60; }
 .toast {

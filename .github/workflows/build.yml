@@ -117,6 +117,7 @@ jobs:
           node tests/ui-test.mjs
           node tests/ratio-test.mjs
           node tests/taghelp-test.mjs
+          node tests/screens-test.mjs
 
   client-test:
     name: client-test

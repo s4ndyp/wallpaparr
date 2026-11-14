@@ -466,6 +466,9 @@ function render() {
       a.download = r.file;
       a.click();
     }));
+    const naarScherm = iconBtn("↦", "Nu tonen op een scherm", () => {});
+    naarScherm.dataset.toonscherm = r.id;
+    foot.appendChild(naarScherm);
     foot.appendChild(iconBtn("✎", "Titel/tags aanpassen", () => editTags(r, true)));
     foot.appendChild(iconBtn("✕", "Verwijderen", () => removeRecord(r), "del"));
     meta.appendChild(foot);
