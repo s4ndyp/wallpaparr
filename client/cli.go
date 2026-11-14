@@ -244,6 +244,7 @@ func cmdLuister(args []string) {
 	if err != nil {
 		fail(err)
 	}
+	fmt.Printf("Wallpaparr-client v%s\n", version)
 	fmt.Printf("Luisteren op %s — %d monitor(en), poll elke %d s (stop met Ctrl-C)\n", cfg.Server, len(mons), poll)
 	fmt.Printf("Monitoren: %s\n", strings.Join(mons, ", "))
 

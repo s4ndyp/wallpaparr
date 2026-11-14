@@ -69,6 +69,7 @@ var (
 	pCreateFontW            = gdi32.NewProc("CreateFontW")
 	pCreateMutexW           = kernel32.NewProc("CreateMutexW")
 	pDwmSetWindowAttribute  = dwmapi.NewProc("DwmSetWindowAttribute")
+	pShellExecuteW          = shell32.NewProc("ShellExecuteW")
 )
 
 const (
@@ -115,6 +116,7 @@ const (
 	mfPopup     = 0x00000010
 	mfSeparator = 0x00000800
 	mfChecked   = 0x00000008
+	mfDisabled  = 0x00000001
 
 	tpmRightButton = 0x0002
 	tpmReturnCmd   = 0x0100
@@ -150,6 +152,8 @@ const (
 	idChkHidden
 	idStatus
 	idPosition
+	idPoll
+	idWebUI
 	idSave
 	idApplyNow
 	idTest
@@ -294,6 +298,13 @@ type guiCmd struct {
 	every time.Duration
 }
 
+// monitorStatus is één regel in het venster: wat de server op een monitor zet.
+type monitorStatus struct {
+	Monitor string
+	Toont   string
+	Sinds   string
+}
+
 type guiState struct {
 	mu     sync.Mutex
 	hwnd   uintptr
@@ -301,22 +312,19 @@ type guiState struct {
 	status string
 	cmds   chan guiCmd
 
-	monitors    []string // monitornamen (door de scheduler gevuld; COM hoort daar)
-	rijenGevuld bool     // staan de monitorrijen al gevuld?
+	monitors []string        // monitornamen (door de poller gevuld; COM hoort daar)
+	stats    []monitorStatus // wat de server nu per monitor toont
 
 	editServer  uintptr
-	editTag     uintptr
-	editMinutes uintptr
-	chkMonitor  uintptr
-	chkRandom   uintptr
+	editPoll    uintptr
 	chkHidden   uintptr
 	cmbPosition uintptr
 	lblStatus   uintptr
 
-	// één rij per monitor: naam, tagveld en de verhouding-checkboxen
+	// één regel per monitor: naam, wat er nu staat en sinds wanneer
 	lblMonitor [maxMonitorRijen]uintptr
-	editTags   [maxMonitorRijen]uintptr
-	chkRatios  [maxMonitorRijen][7]uintptr
+	lblToont   [maxMonitorRijen]uintptr
+	lblSinds   [maxMonitorRijen]uintptr
 }
 
 var g = &guiState{cmds: make(chan guiCmd, 8)}
@@ -331,83 +339,50 @@ func (s *guiState) getMonitors() []string {
 	return append([]string(nil), s.monitors...)
 }
 
-/* ---------- profiel per monitor (één rij per monitor) ---------- */
+/* ---------- statusregels (wat de server op de monitoren zet) ---------- */
 
-// leesProfielRijen zet de invoer van elke monitorrij in de config.
-func (s *guiState) leesProfielRijen(cfg Config) Config {
-	mons := s.getMonitors()
-	for i, m := range mons {
-		if i >= maxMonitorRijen || s.editTags[i] == 0 {
-			break
-		}
-		p := MonitorProfiel{Monitor: m, Tags: tagList(getText(s.editTags[i]))}
-		for j, naam := range ratioNamen {
-			if call(pSendMessageW, s.chkRatios[i][j], bmGetCheck, 0, 0) == bstChecked {
-				p.Ratios = append(p.Ratios, naam)
-			}
-		}
-		cfg = cfg.metProfiel(p)
-	}
-	return cfg
+func (s *guiState) setStats(v []monitorStatus) {
+	s.mu.Lock()
+	s.stats = v
+	s.mu.Unlock()
 }
 
-// rijHandles geeft alle controls van monitorrij i.
-func (s *guiState) rijHandles(i int) []uintptr {
-	uit := []uintptr{s.lblMonitor[i], s.editTags[i]}
-	for _, h := range s.chkRatios[i] {
-		uit = append(uit, h)
-	}
-	return uit
-}
-
-// zetProfielRijen toont per monitor een rij met het bijbehorende profiel.
-func (s *guiState) zetProfielRijen(cfg Config) {
-	mons := s.getMonitors()
-	if len(mons) > maxMonitorRijen {
-		guiLog("let op: %d monitoren gevonden; het venster toont er %d — de rest gebruikt alle tags/verhoudingen",
-			len(mons), maxMonitorRijen)
-	}
-	for i := 0; i < maxMonitorRijen; i++ {
-		if s.editTags[i] == 0 {
-			continue
-		}
-		if i >= len(mons) {
-			for _, h := range s.rijHandles(i) {
-				call(pShowWindow, h, swHide)
-			}
-			continue
-		}
-		p := cfg.profielVoor(mons[i])
-		setText(s.lblMonitor[i], monitorLabel(mons[i], i))
-		setText(s.editTags[i], strings.Join(p.Tags, ","))
-		aan := map[string]bool{}
-		for _, r := range p.Ratios {
-			aan[r] = true
-		}
-		for j, naam := range ratioNamen {
-			v := uintptr(0)
-			if aan[naam] {
-				v = bstChecked
-			}
-			call(pSendMessageW, s.chkRatios[i][j], bmSetCheck, v, 0)
-		}
-		for _, h := range s.rijHandles(i) {
-			call(pShowWindow, h, swShow)
-		}
-	}
-}
-
-// verwerkMonitorLijst tekent de rijen; bij een verversing eerst de invoer veiligstellen.
+// verwerkMonitorLijst tekent per monitor wat de server er nu op zet.
 func (s *guiState) verwerkMonitorLijst() {
-	if s.rijenGevuld {
-		cfg := s.leesProfielRijen(s.getCfg())
-		s.setCfg(cfg)
-		s.zetProfielRijen(cfg)
-		return
+	s.mu.Lock()
+	stats := append([]monitorStatus(nil), s.stats...)
+	s.mu.Unlock()
+
+	verberg := func(i int) {
+		for _, h := range []uintptr{s.lblMonitor[i], s.lblToont[i], s.lblSinds[i]} {
+			call(pShowWindow, h, swHide)
+		}
 	}
-	s.rijenGevuld = true
-	s.zetProfielRijen(s.getCfg())
+	toon := func(h uintptr, tekst string) {
+		setText(h, tekst)
+		call(pShowWindow, h, swShow)
+	}
+
+	for i := 0; i < maxMonitorRijen; i++ {
+		if s.lblMonitor[i] == 0 {
+			continue
+		}
+		if i >= len(stats) {
+			if i == 0 {
+				toon(s.lblMonitor[0], "nog geen schermen bij de server bekend")
+				call(pShowWindow, s.lblToont[0], swHide)
+				call(pShowWindow, s.lblSinds[0], swHide)
+			} else {
+				verberg(i)
+			}
+			continue
+		}
+		toon(s.lblMonitor[i], stats[i].Monitor)
+		toon(s.lblToont[i], stats[i].Toont)
+		toon(s.lblSinds[i], stats[i].Sinds)
+	}
 }
+
 func (s *guiState) setStatus(m string) {
 	s.mu.Lock()
 	s.status = m
@@ -497,40 +472,14 @@ func appendMenu(h, flags, id uintptr, tekst string) {
 
 func showTrayMenu() {
 	hwnd := g.hwnd
-	cfg := g.getCfg()
 	menu := call(pCreatePopupMenu)
 
-	appendMenu(menu, mfString, idMSettings, "Instellingen…")
-	appendMenu(menu, mfString, idMNow, "Nu wisselen")
-	appendMenu(menu, mfString, idMNext, "Volgende wallpaper")
-	appendMenu(menu, mfString, idMTest, "Verbinding testen")
-	appendMenu(menu, mfString, idMProfiles, "Profielen controleren")
+	appendMenu(menu, mfString|mfDisabled, 0, "Wallpaparr v"+version)
 	appendMenu(menu, mfSeparator, 0, "")
-
-	monFlag := uintptr(mfString)
-	if cfg.PerMonitor {
-		monFlag |= mfChecked
-	}
-	appendMenu(menu, monFlag, idMMonitor, "Per monitor een andere wallpaper")
-
-	sub := call(pCreatePopupMenu)
-	for _, k := range intervalKeuzes {
-		flags := uintptr(mfString)
-		huidig := 0
-		if d, err := time.ParseDuration(cfg.Every); err == nil {
-			huidig = int(d.Minutes())
-		}
-		if k.minuten == huidig {
-			flags |= mfChecked
-		}
-		label := fmt.Sprintf("%d minuten", k.minuten)
-		if k.minuten == 0 {
-			label = "uit (niet wisselen)"
-		}
-		appendMenu(sub, flags, k.id, label)
-	}
-	appendMenu(menu, mfPopup, sub, "Interval")
-
+	appendMenu(menu, mfString, idMSettings, "Instellingen…")
+	appendMenu(menu, mfString, idMNow, "Nu synchroniseren")
+	appendMenu(menu, mfString, idMTest, "Verbinding testen")
+	appendMenu(menu, mfString, idMProfiles, "Open web-UI")
 	appendMenu(menu, mfSeparator, 0, "")
 	appendMenu(menu, mfString, idMQuit, "Afsluiten")
 
@@ -545,37 +494,13 @@ func showTrayMenu() {
 	case idMSettings:
 		showVenster()
 	case idMNow:
-		g.cmds <- guiCmd{kind: "apply"}
-	case idMNext:
-		g.cmds <- guiCmd{kind: "next"}
+		g.cmds <- guiCmd{kind: "sync"}
 	case idMTest:
 		g.cmds <- guiCmd{kind: "test"}
 	case idMProfiles:
-		showVenster()
-		g.cmds <- guiCmd{kind: "monitors"}
-		g.cmds <- guiCmd{kind: "profiles"}
-	case idMMonitor:
-		cfg.PerMonitor = !cfg.PerMonitor
-		cfg.Save()
-		g.setCfg(cfg)
-		g.setStatus("per monitor: " + aanUit(cfg.PerMonitor))
+		g.cmds <- guiCmd{kind: "web"}
 	case idMQuit:
 		afsluiten()
-	default:
-		for _, k := range intervalKeuzes {
-			if keuze == k.id {
-				cfg.Every = fmt.Sprintf("%dm", k.minuten)
-				cfg.Save()
-				g.setCfg(cfg)
-				g.cmds <- guiCmd{kind: "interval", every: time.Duration(k.minuten) * time.Minute}
-				if k.minuten == 0 {
-					g.setStatus("wisselen uit")
-				} else {
-					g.setStatus(fmt.Sprintf("wisselt elke %d minuten", k.minuten))
-				}
-				return
-			}
-		}
 	}
 }
 
@@ -622,8 +547,8 @@ func maakControls() {
 	vet := call(pCreateFontW, uintptr(fontHoogte), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0,
 		uintptr(unsafe.Pointer(u16("Segoe UI"))))
 
-	maakLabel := func(tekst string, x, y int) uintptr {
-		h := makeControl("STATIC", tekst, ssLeft, x, y, 140, 20, 0)
+	maakLabel := func(tekst string, x, y, w int) uintptr {
+		h := makeControl("STATIC", tekst, ssLeft, x, y, w, 20, 0)
 		call(pSendMessageW, h, 0x0030 /*WM_SETFONT*/, vet, 1)
 		return h
 	}
@@ -633,21 +558,13 @@ func maakControls() {
 		return h
 	}
 
-	maakLabel("Server-URL", 16, 20)
-	g.editServer = maakEdit(cfg.Server, 150, 17, 310, idServer, 0)
+	maakLabel("Wallpaparr v"+version+" — de server is de baas", 16, 14, 700)
 
-	maakLabel("Tags (kommagescheiden)", 16, 54)
-	g.editTag = maakEdit(cfg.Tag, 150, 51, 310, idTag, 0)
+	maakLabel("Server-URL", 16, 48, 130)
+	g.editServer = maakEdit(cfg.Server, 150, 45, 380, idServer, 0)
 
-	minuten := 0
-	if d, err := time.ParseDuration(cfg.Every); err == nil {
-		minuten = int(d.Minutes())
-	}
-	maakLabel("Interval (minuten, 0 = uit)", 16, 88)
-	g.editMinutes = maakEdit(strconv.Itoa(minuten), 150, 85, 80, idMinutes, esNumber)
-
-	maakLabel("Weergave", 16, 122)
-	g.cmbPosition = makeControl("COMBOBOX", "", cbsDropDownList|wsTabStop|wsVScroll, 150, 120, 200, 200, idPosition)
+	maakLabel("Weergave", 16, 80, 130)
+	g.cmbPosition = makeControl("COMBOBOX", "", cbsDropDownList|wsTabStop|wsVScroll, 150, 78, 200, 200, idPosition)
 	call(pSendMessageW, g.cmbPosition, 0x0030, vet, 1)
 	for _, l := range positieLabels {
 		call(pSendMessageW, g.cmbPosition, cbAddString, 0, uintptr(unsafe.Pointer(u16(l))))
@@ -660,66 +577,75 @@ func maakControls() {
 	}
 	call(pSendMessageW, g.cmbPosition, cbSetCurSel, uintptr(idx), 0)
 
-	g.chkMonitor = makeControl("BUTTON", "Per monitor een andere wallpaper", bsAutoCheckBox|wsTabStop, 16, 154, 260, 22, idChkMonitor)
-	g.chkRandom = makeControl("BUTTON", "Willekeurige keuze", bsAutoCheckBox|wsTabStop, 290, 154, 170, 22, idChkRandom)
-	g.chkHidden = makeControl("BUTTON", "Bij opstarten alleen in de systeembalk (geen venster)", bsAutoCheckBox|wsTabStop, 16, 178, 444, 22, idChkHidden)
-	call(pSendMessageW, g.chkMonitor, 0x0030, vet, 1)
-	call(pSendMessageW, g.chkRandom, 0x0030, vet, 1)
+	maakLabel("Poll-interval (seconden)", 380, 80, 190)
+	g.editPoll = maakEdit(strconv.Itoa(pollSeconden(cfg)), 580, 78, 60, idPoll, esNumber)
+
+	g.chkHidden = makeControl("BUTTON", "Bij opstarten alleen in de systeembalk (geen venster)", bsAutoCheckBox|wsTabStop, 16, 112, 460, 22, idChkHidden)
 	call(pSendMessageW, g.chkHidden, 0x0030, vet, 1)
 	if cfg.StartHidden {
 		call(pSendMessageW, g.chkHidden, bmSetCheck, bstChecked, 0)
 	}
-	if cfg.PerMonitor {
-		call(pSendMessageW, g.chkMonitor, bmSetCheck, bstChecked, 0)
-	}
-	if cfg.Random {
-		call(pSendMessageW, g.chkRandom, bmSetCheck, bstChecked, 0)
-	}
 
-	// --- profiel per monitor: één rij per monitor ----------------------------
-	maakLabel("Monitor", 16, 206)
-	maakLabel("Tags (leeg = alle tags)", 164, 206)
-	maakLabel("Verhoudingen (niets = alle)", 354, 206)
+	_ = maakLabel("Rotatie, tags, verhoudingen en keuzes stel je in de web-UI in. Deze client meldt alleen zijn schermen en zet wat de server opdraagt.", 16, 140, 780)
+
+	maakLabel("Monitor", 16, 184, 280)
+	maakLabel("Toont nu", 300, 184, 290)
+	maakLabel("Sinds", 600, 184, 160)
 	for i := 0; i < maxMonitorRijen; i++ {
-		y := 228 + i*28
-		g.lblMonitor[i] = makeControl("STATIC", "", ssLeft, 16, y+4, 142, 20, 0)
-		call(pSendMessageW, g.lblMonitor[i], 0x0030, vet, 1)
-		g.editTags[i] = maakEdit("", 164, y, 182, 0, 0)
-		for j, naam := range ratioNamen {
-			g.chkRatios[i][j] = makeControl("BUTTON", naam, bsAutoCheckBox|wsTabStop, 354+j*62, y+2, 62, 21, 0)
-			call(pSendMessageW, g.chkRatios[i][j], 0x0030, vet, 1)
-		}
-		for _, h := range g.rijHandles(i) {
+		y := 206 + i*24
+		g.lblMonitor[i] = maakLabel("", 16, y, 280)
+		g.lblToont[i] = maakLabel("", 300, y, 290)
+		g.lblSinds[i] = maakLabel("", 600, y, 160)
+		for _, h := range []uintptr{g.lblMonitor[i], g.lblToont[i], g.lblSinds[i]} {
 			call(pShowWindow, h, swHide)
 		}
 	}
 
-	btnSave := makeControl("BUTTON", "Opslaan en toepassen", bsPushButton|wsTabStop, 16, 406, 150, 28, idSave)
-	btnNow := makeControl("BUTTON", "Nu wisselen", bsPushButton|wsTabStop, 176, 406, 105, 28, idApplyNow)
-	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 291, 406, 140, 28, idTest)
-	btnCheck := makeControl("BUTTON", "Profielen controleren", bsPushButton|wsTabStop, 441, 406, 145, 28, idProfielCheck)
-	for _, b := range []uintptr{btnSave, btnNow, btnTest, btnCheck} {
+	btnSave := makeControl("BUTTON", "Opslaan", bsPushButton|wsTabStop, 16, 366, 110, 28, idSave)
+	btnSync := makeControl("BUTTON", "Nu synchroniseren", bsPushButton|wsTabStop, 136, 366, 155, 28, idApplyNow)
+	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 301, 366, 150, 28, idTest)
+	btnWeb := makeControl("BUTTON", "Open web-UI", bsPushButton|wsTabStop, 461, 366, 130, 28, idWebUI)
+	for _, b := range []uintptr{btnSave, btnSync, btnTest, btnWeb} {
 		call(pSendMessageW, b, 0x0030, vet, 1)
 	}
 
-	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 444, 770, 120, idStatus)
+	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 404, 780, 160, idStatus)
 	call(pSendMessageW, g.lblStatus, 0x0030, vet, 1)
 }
 
+// pollSeconden is het poll-interval in seconden (config, anders 5).
+func pollSeconden(cfg Config) int {
+	if cfg.Poll > 0 {
+		return cfg.Poll
+	}
+	return 5
+}
+
+// statePadOf geeft het pad van het lokale swap-bestand.
+func statePadOf() string {
+	p, err := statePath()
+	if err != nil {
+		return "wallpaparr-state.json"
+	}
+	return p
+}
+
+// openURL opent een adres in de standaardbrowser.
+func openURL(u string) {
+	call(pShellExecuteW, 0,
+		uintptr(unsafe.Pointer(u16("open"))),
+		uintptr(unsafe.Pointer(u16(u))), 0, 0, swShow)
+}
+
 func readForm() Config {
-	// de invoer van de monitorrijen hoort in de config
-	cfg := g.leesProfielRijen(g.getCfg())
-	g.setCfg(cfg)
+	cfg := g.getCfg()
 	cfg.Server = normalizeServer(getText(g.editServer))
-	cfg.Tag = getText(g.editTag)
-	if n, err := strconv.Atoi(getText(g.editMinutes)); err == nil && n >= 0 {
-		cfg.Every = fmt.Sprintf("%dm", n)
+	if n, err := strconv.Atoi(getText(g.editPoll)); err == nil && n >= 1 {
+		cfg.Poll = n
 	}
-	if cfg.Every == "" {
-		cfg.Every = "30m"
+	if cfg.Poll <= 0 {
+		cfg.Poll = 5
 	}
-	cfg.PerMonitor = call(pSendMessageW, g.chkMonitor, bmGetCheck, 0, 0) == bstChecked
-	cfg.Random = call(pSendMessageW, g.chkRandom, bmGetCheck, 0, 0) == bstChecked
 	cfg.StartHidden = call(pSendMessageW, g.chkHidden, bmGetCheck, 0, 0) == bstChecked
 	sel := int(call(pSendMessageW, g.cmbPosition, cbGetCurSel, 0, 0))
 	if sel >= 0 && sel < len(posities) {
@@ -732,10 +658,6 @@ func readForm() Config {
 
 func onCommand(id, code uint16) {
 	switch id {
-	case idProfielCheck:
-		showVenster()
-		g.cmds <- guiCmd{kind: "monitors"}
-		g.cmds <- guiCmd{kind: "profiles"}
 	case idSave:
 		cfg := readForm()
 		if err := cfg.Save(); err != nil {
@@ -743,15 +665,28 @@ func onCommand(id, code uint16) {
 			return
 		}
 		g.setCfg(cfg)
-		d, _ := time.ParseDuration(cfg.Every)
-		g.cmds <- guiCmd{kind: "interval", every: d}
-		g.cmds <- guiCmd{kind: "apply"}
-		g.cmds <- guiCmd{kind: "profiles"} // meteen laten zien hoeveel er per monitor passen
+		zetTitel()
+		g.cmds <- guiCmd{kind: "sync"}
 	case idApplyNow:
-		g.cmds <- guiCmd{kind: "apply"}
+		g.cmds <- guiCmd{kind: "sync"}
 	case idTest:
 		g.cmds <- guiCmd{kind: "test"}
+	case idWebUI:
+		g.cmds <- guiCmd{kind: "web"}
 	}
+}
+
+// zetTitel houdt de venstertitel (met versie én server) actueel.
+func zetTitel() {
+	if g.hwnd == 0 {
+		return
+	}
+	cfg := g.getCfg()
+	titel := "Wallpaparr v" + version + " — wallpaper-client"
+	if cfg.Server != "" {
+		titel += " — " + cfg.Server
+	}
+	setText(g.hwnd, titel)
 }
 
 func updateStatus() {
@@ -766,7 +701,7 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	// taakbalk opnieuw opgestart? dan het tray-icoon opnieuw aanmelden
 	if taskbarCreatedMsg != 0 && message == taskbarCreatedMsg {
 		guiLog("taakbalk opnieuw gestart — tray-icoon opnieuw aanmelden")
-		trayAdd("klaar")
+		trayAdd("v" + version + " — klaar")
 		return 0
 	}
 	switch message {
@@ -807,31 +742,11 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	return r
 }
 
-/* ---------- scheduler ---------- */
+/* ---------- poller: de client volgt de server ---------- */
 
-func scheduler() {
-	var ticker *time.Ticker
-	var tick <-chan time.Time
-	laatstePerMonitor := map[string]string{}
-
-	stelIntervalIn := func(d time.Duration) {
-		if ticker != nil {
-			ticker.Stop()
-			ticker = nil
-			tick = nil
-		}
-		if d > 0 {
-			ticker = time.NewTicker(d)
-			tick = ticker.C
-		}
-	}
-
-	cfg := g.getCfg()
-	if d, err := time.ParseDuration(cfg.Every); err == nil {
-		stelIntervalIn(d)
-	}
-
-	// panics in de achtergrond mogen de app niet stil laten verdwijnen
+// poller meldt de monitoren aan, pollt de server en zet wat de server opdraagt.
+// De client roteert zelf niet meer: rotatie, tags en keuzes zijn serverbeleid.
+func poller() {
 	veilig := func(naam string, f func()) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -842,90 +757,145 @@ func scheduler() {
 		f()
 	}
 
+	device := hostname()
+	if device == "" {
+		device = "wallpaparr-client"
+	}
+	laatste := loadState(statePadOf())
+
+	var mons []string
+	haalMonitoren := func() {
+		if m, err := listMonitors(); err == nil {
+			mons = m
+			g.setMonitors(m)
+			guiLog("monitoren: %d gevonden", len(m))
+		} else {
+			guiLog("monitoren ophalen mislukt: %v", err)
+		}
+	}
+
 	doe := func() {
 		cfg := g.getCfg()
 		if cfg.Server == "" {
 			g.setStatus("nog geen server ingesteld — vul de server-URL in en klik Opslaan")
 			return
 		}
-		g.setStatus("bezig…")
-		res, meldingen, err := applyRound(cfg, cfg.Random, laatstePerMonitor)
-		for _, m := range meldingen {
-			guiLog("let op: %s", m)
+		if len(mons) == 0 {
+			haalMonitoren()
 		}
-		if err != nil {
-			guiLog("wisselen mislukt: %v", err)
-			g.setStatus("fout: " + err.Error())
+		if len(mons) == 0 {
+			g.setStatus("geen monitoren gevonden")
 			return
 		}
+
+		// 1-2. de eigen schermen bij de server aanmelden
+		nu := time.Now().Format("2006-01-02 15:04:05.000Z")
+		for _, m := range mons {
+			s := Screen{
+				Key:          device + "|" + m + "|" + strconv.Itoa(countWithin(mons, m)),
+				Device:       device,
+				Monitor:      m,
+				Index:        countWithin(mons, m),
+				LaatstGewien: nu,
+			}
+			if err := screenUpsert(cfg.Server, s); err != nil {
+				guiLog("scherm %q registreren mislukt: %v", s.Key, err)
+			}
+		}
+
+		screens, err := screensForDevice(cfg.Server, device)
+		if err != nil {
+			guiLog("schermen ophalen mislukt: %v", err)
+			g.setStatus("server niet bereikbaar: " + err.Error())
+			return
+		}
+
+		// 3. toepassen wat de server opdraagt (alleen als het nog niet staat)
+		var stats []monitorStatus
 		var regels []string
-		for _, r := range res {
-			guiLog("gezet op %s: %s (%dx%d) id=%s", monitorLabel(r.Monitor, r.Index),
-				r.Rec.Title, r.Rec.Width, r.Rec.Height, r.Rec.ID)
-			regels = append(regels, monitorLabel(r.Monitor, r.Index)+": "+r.Rec.Title)
+		for _, s := range screens {
+			toont := ""
+			if s.HuidigeWallpaper != "" {
+				if wp, err := getWallpaper(cfg.Server, s.HuidigeWallpaper); err == nil {
+					toont = wp.Title
+					if s.HuidigeWallpaper != laatste[s.Key] {
+						if pad, err := download(cfg.Server, wp); err != nil {
+							guiLog("downloaden mislukt: %v", err)
+						} else if err := setMonitorWallpaper(s.Monitor, s.Index, pad, cfg.Position); err != nil {
+							guiLog("zetten op %s mislukt: %v", s.Monitor, err)
+						} else {
+							_ = geschiedenisCreate(cfg.Server, s.ID, wp.ID, device, "rotatie")
+							laatste[s.Key] = s.HuidigeWallpaper
+							regels = append(regels, monitorLabel(s.Monitor, s.Index)+": "+wp.Title)
+						}
+					}
+				}
+			}
+			stats = append(stats, monitorStatus{
+				Monitor: monitorLabel(s.Monitor, s.Index),
+				Toont:   toont,
+				Sinds:   formatSince(s.LaatstGewien),
+			})
 		}
-		status := strings.Join(regels, "\r\n")
-		if len(meldingen) > 0 {
-			status += "\r\n" + strings.Join(meldingen, "\r\n")
-		}
-		g.setStatus(status)
-	}
-
-	// monitoren ophalen: COM hoort op deze goroutine, niet op de UI-thread
-	if m, err := listMonitors(); err == nil {
-		g.setMonitors(m)
+		_ = saveState(statePadOf(), laatste)
+		g.setStats(stats)
 		call(pPostMessageW, g.hwnd, msgMonitors, 0, 0)
-		guiLog("monitoren: %d gevonden", len(m))
-	} else {
-		guiLog("monitoren ophalen mislukt: %v", err)
+
+		if len(regels) == 0 {
+			g.setStatus("volgt de server — geen nieuwe opdracht (" + time.Now().Format("15:04:05") + ")")
+		} else {
+			g.setStatus("gezet:\r\n" + strings.Join(regels, "\r\n"))
+		}
 	}
 
-	// eerste toepassing meteen
-	veilig("eerste toepassing", doe)
+	haalMonitoren()
+	veilig("eerste synchronisatie", doe)
+
+	// elke seconde kijken of het poll-interval verstreken is (interval is instelbaar)
+	tik := time.NewTicker(time.Second)
+	defer tik.Stop()
+	volgende := time.Now().Add(time.Duration(pollSeconden(g.getCfg())) * time.Second)
 
 	for {
 		select {
 		case c := <-g.cmds:
 			switch c.kind {
-			case "apply", "next":
-				veilig("wisselen", doe)
+			case "sync":
+				veilig("synchroniseren", doe)
+				volgende = time.Now().Add(time.Duration(pollSeconden(g.getCfg())) * time.Second)
 			case "test":
 				veilig("verbinding testen", func() {
 					cfg := g.getCfg()
+					if cfg.Server == "" {
+						g.setStatus("nog geen server ingesteld")
+						return
+					}
 					g.setStatus("verbinding testen…")
-					recs, err := fetchRecords(cfg.Server, cfg.Tag)
-					if err != nil {
+					if _, err := screensForDevice(cfg.Server, device); err != nil {
 						guiLog("verbindingstest mislukt: %v", err)
 						g.setStatus("verbinding mislukt: " + err.Error())
 					} else {
-						guiLog("verbindingstest ok: %d wallpapers", len(recs))
-						g.setStatus(fmt.Sprintf("verbinding ok — %d wallpaper(s) op de server", len(recs)))
+						guiLog("verbindingstest ok")
+						g.setStatus("verbinding ok — " + cfg.Server)
 					}
 				})
-			case "interval":
-				stelIntervalIn(c.every)
-			case "profiles":
-				veilig("profielen controleren", func() {
-					regels, err := profielSamenvatting(g.getCfg())
-					if err != nil {
-						g.setStatus("profielen controleren mislukt: " + err.Error())
+			case "web":
+				veilig("web-UI openen", func() {
+					cfg := g.getCfg()
+					if cfg.Server == "" {
+						g.setStatus("nog geen server ingesteld")
 						return
 					}
-					for _, r := range regels {
-						guiLog("profiel — %s", r)
-					}
-					g.setStatus(strings.Join(regels, "\r\n"))
+					openURL(cfg.Server)
 				})
 			case "monitors":
-				veilig("monitoren ophalen", func() {
-					if m, err := listMonitors(); err == nil {
-						g.setMonitors(m)
-						call(pPostMessageW, g.hwnd, msgMonitors, 0, 0)
-					}
-				})
+				veilig("monitoren ophalen", haalMonitoren)
 			}
-		case <-tick:
-			veilig("wisselen", doe)
+		case <-tik.C:
+			if !time.Now().Before(volgende) {
+				veilig("pollen", doe)
+				volgende = time.Now().Add(time.Duration(pollSeconden(g.getCfg())) * time.Second)
+			}
 		}
 	}
 }
@@ -966,15 +936,14 @@ func runGUI() error {
 	if env := os.Getenv("WALLPAPARR_SERVER"); env != "" {
 		cfg.Server = normalizeServer(env)
 	}
-	if cfg.Every == "" {
-		cfg.Every = "30m"
+	if cfg.Poll <= 0 {
+		cfg.Poll = 5
 	}
 	if cfg.Position == "" {
 		cfg.Position = "fill"
 	}
 	g.setCfg(cfg)
-	guiLog("start: server=%q tags=%q interval=%q per_monitor=%v random=%v verborgen=%v",
-		cfg.Server, cfg.Tag, cfg.Every, cfg.PerMonitor, cfg.Random, cfg.StartHidden)
+	guiLog("start: versie=%s server=%q poll=%ds verborgen=%v", version, cfg.Server, pollSeconden(cfg), cfg.StartHidden)
 
 	icon := loadIcon()
 	hInst := call(pGetModuleHandleW, 0)
@@ -995,7 +964,7 @@ func runGUI() error {
 	style := uintptr(wsOverlapped | wsCaption | wsSysMenu | wsMinimizeBox)
 	hwnd := call(pCreateWindowExW, 0,
 		uintptr(unsafe.Pointer(klasse)),
-		uintptr(unsafe.Pointer(u16("Wallpaparr — wallpaper-client"))),
+		uintptr(unsafe.Pointer(u16("Wallpaparr v"+version+" — wallpaper-client"))),
 		style, uintptr(cwUseDefault), uintptr(cwUseDefault), 820, 620, 0, 0, hInst, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("venster maken mislukt")
@@ -1011,11 +980,11 @@ func runGUI() error {
 	} else {
 		call(pShowWindow, hwnd, swHide)
 	}
-	trayAdd("klaar")
+	trayAdd("v" + version + " — klaar")
 	if eersteKeer {
 		trayBalloon("Wallpaparr", "De client draait in de systeembalk. Zie je het icoon niet meteen? Klik op het pijltje ^ naast de klok en sleep het naar de taakbalk.")
 	}
-	go scheduler()
+	go poller()
 
 	// berichtlus (moet op deze thread blijven)
 	var m msg
