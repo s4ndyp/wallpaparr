@@ -1,6 +1,7 @@
 // Wallpaparr-client: haalt wallpapers op van de centrale Wallpaparr-server
 // (PocketBase) en zet ze als bureaubladachtergrond, met ondersteuning voor
-// multi-monitor setups.
+// multi-monitor setups. Op Windows start zonder argumenten de tray-app met
+// instellingenvenster; op Unix gebruik je de opdrachten hieronder.
 package main
 
 import (
@@ -13,19 +14,23 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `wallpaparr %s — wallpaper-client voor de Wallpaparr-server
 
 Gebruik:
-  wallpaparr config --server http://10.5.0.171     server opslaan
+  wallpaparr gui                                   tray-app met instellingenvenster (Windows)
+  wallpaparr config --server https://<host>        server opslaan
   wallpaparr list  [--tag natuur] [--json]         wallpapers op de server tonen
   wallpaparr monitors                              monitoren tonen
   wallpaparr set   [--tag natuur] [--random] [--per-monitor]
                                                    één wallpaper zetten
   wallpaparr rotate --every 30m [--tag natuur] [--per-monitor]
                                                    blijven wisselen
+
+Op Windows start een dubbelklik op de exe (zonder argumenten) de tray-app; het
+kruisje verbergt hem naar de systeembalk, rechtsklik geeft het menu (o.a. Afsluiten).
 
 Opties:
   --server URL      server-adres (ook via $WALLPAPARR_SERVER)
@@ -51,10 +56,18 @@ type opts struct {
 
 func main() {
 	if len(os.Args) < 2 {
+		// dubbelklik op Windows: tray-app. Op Unix: gebruik tonen.
+		if maybeStartGUI() {
+			return
+		}
 		usage()
 		os.Exit(2)
 	}
 	switch os.Args[1] {
+	case "gui":
+		if !maybeStartGUI() {
+			fail(fmt.Errorf("de GUI zit alleen in de Windows-client; gebruik op Unix set/rotate"))
+		}
 	case "config":
 		cmdConfig(os.Args[2:])
 	case "list":
@@ -170,9 +183,14 @@ func cmdSet(args []string, loop bool) {
 	if err != nil {
 		fail(fmt.Errorf("ongeldig interval %q: %v", cfg.Every, err))
 	}
+	laatste := ""
 	for {
-		if err := applyOnce(cfg, o); err != nil {
+		rec, err := applyChoice(cfg, o.random, laatste)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "let op: %v\n", err)
+		} else {
+			laatste = rec.ID
+			fmt.Printf("wallpaper gezet: %s\n", rec.Title)
 		}
 		next := time.Now().Add(d).Format("15:04:05")
 		fmt.Printf("volgende wissel om %s (elke %s) — stoppen met Ctrl+C\n", next, d)
@@ -214,7 +232,41 @@ func applyOnce(cfg Config, o opts) error {
 	if len(recs) == 0 {
 		return fmt.Errorf("geen wallpapers gevonden (tag=%q)", cfg.Tag)
 	}
+	want, mons := selectie(cfg)
+	if want > len(recs) {
+		want = len(recs)
+	}
+	chosen := pick(recs, want, o.id, o.random)
+	if err := applyChosen(cfg, chosen, mons); err != nil {
+		return err
+	}
+	rapporteer(chosen, mons)
+	return nil
+}
 
+// applyChoice haalt zelf de wallpapers op en zet er één (of per monitor één).
+// lastID wordt overgeslagen zodat een wissel nooit hetzelfde beeld herhaalt.
+func applyChoice(cfg Config, random bool, lastID string) (Record, error) {
+	recs, err := fetchRecords(cfg.Server, cfg.Tag)
+	if err != nil {
+		return Record{}, err
+	}
+	if len(recs) == 0 {
+		return Record{}, fmt.Errorf("geen wallpapers gevonden (tag=%q)", cfg.Tag)
+	}
+	want, mons := selectie(cfg)
+	if want > len(recs) {
+		want = len(recs)
+	}
+	chosen := nextPick(recs, lastID, want, random)
+	if err := applyChosen(cfg, chosen, mons); err != nil {
+		return Record{}, err
+	}
+	return chosen[0], nil
+}
+
+// selectie bepaalt hoeveel wallpapers er nodig zijn en welke monitoren meedoen.
+func selectie(cfg Config) (int, []string) {
 	want := 1
 	var mons []string
 	if cfg.PerMonitor {
@@ -223,11 +275,11 @@ func applyOnce(cfg Config, o opts) error {
 			want = len(m)
 		}
 	}
-	if want > len(recs) {
-		want = len(recs)
-	}
+	return want, mons
+}
 
-	chosen := pick(recs, want, o.id, o.random)
+// applyChosen downloadt de gekozen wallpapers en zet ze als achtergrond.
+func applyChosen(cfg Config, chosen []Record, mons []string) error {
 	paths := make([]string, 0, len(chosen))
 	for _, r := range chosen {
 		p, err := download(cfg.Server, r)
@@ -236,28 +288,24 @@ func applyOnce(cfg Config, o opts) error {
 		}
 		paths = append(paths, p)
 	}
-
 	if len(paths) == 1 || len(mons) <= 1 {
-		if err := setWallpaperAll(paths[0], cfg.Position); err != nil {
-			return err
-		}
-		fmt.Printf("wallpaper gezet: %s\n", chosen[0].Title)
-		return nil
+		return setWallpaperAll(paths[0], cfg.Position)
 	}
-
-	// Per monitor een andere wallpaper; valt terug op één als het platform
-	// (of de aanwezige tools) het niet ondersteunen.
 	if err := setAllMonitors(mons, paths, cfg.Position); err != nil {
 		fmt.Fprintf(os.Stderr, "let op: per-monitor niet gelukt (%v) — zelfde wallpaper op alle monitoren\n", err)
-		if err := setWallpaperAll(paths[0], cfg.Position); err != nil {
-			return err
-		}
-		return nil
+		return setWallpaperAll(paths[0], cfg.Position)
+	}
+	return nil
+}
+
+func rapporteer(chosen []Record, mons []string) {
+	if len(chosen) == 1 || len(mons) <= 1 {
+		fmt.Printf("wallpaper gezet: %s\n", chosen[0].Title)
+		return
 	}
 	for i, m := range mons {
 		fmt.Printf("monitor %d (%s): %s\n", i, friendlyMonitor(m), chosen[i%len(chosen)].Title)
 	}
-	return nil
 }
 
 func setAllMonitors(mons []string, paths []string, position string) error {
@@ -279,7 +327,7 @@ func setAllMonitors(mons []string, paths []string, position string) error {
 	return nil
 }
 
-// pick kiest de records die gezet gaan worden.
+// pick kiest de records die gezet gaan worden (CLI: expliciet id of willekeurig).
 func pick(recs []Record, want int, id string, random bool) []Record {
 	if id != "" {
 		for _, r := range recs {
@@ -299,6 +347,35 @@ func pick(recs []Record, want int, id string, random bool) []Record {
 	out := make([]Record, 0, want)
 	for _, i := range idx[:want] {
 		out = append(out, recs[i])
+	}
+	return out
+}
+
+// nextPick kiest voor een wissel: de vorige wallpaper wordt overgeslagen zolang er
+// genoeg andere zijn, zodat je nooit twee keer hetzelfde beeld krijgt.
+func nextPick(recs []Record, lastID string, want int, random bool) []Record {
+	kandidaten := recs
+	if lastID != "" && len(recs) > want {
+		var overig []Record
+		for _, r := range recs {
+			if r.ID != lastID {
+				overig = append(overig, r)
+			}
+		}
+		if len(overig) >= want {
+			kandidaten = overig
+		}
+	}
+	if want <= 1 || len(kandidaten) == 1 {
+		if random {
+			return []Record{kandidaten[rand.Intn(len(kandidaten))]}
+		}
+		return []Record{kandidaten[0]}
+	}
+	idx := rand.Perm(len(kandidaten))
+	out := make([]Record, 0, want)
+	for _, i := range idx[:want] {
+		out = append(out, kandidaten[i])
 	}
 	return out
 }

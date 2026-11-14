@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -262,6 +263,15 @@ func systemParametersWallpaper(path string) error {
 }
 
 // friendlyMonitor maakt van een COM-device-pad iets leesbaars.
+// maybeStartGUI start de tray-app met instellingenvenster; true als de GUI het overnam.
+func maybeStartGUI() bool {
+	if err := runGUI(); err != nil {
+		fmt.Fprintf(os.Stderr, "GUI niet gestart: %v\n", err)
+		return false
+	}
+	return true
+}
+
 func friendlyMonitor(id string) string {
 	// \\?\DISPLAY#DEL40E8#5&2b8f...&0&UID4352#{guid}
 	s := strings.TrimPrefix(id, `\\?\`)

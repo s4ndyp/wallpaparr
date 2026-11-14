@@ -38,6 +38,9 @@ func isX11() bool     { return os.Getenv("DISPLAY") != "" }
 // friendlyMonitor: op Unix is de monitornaam al leesbaar.
 func friendlyMonitor(id string) string { return id }
 
+// maybeStartGUI: de tray-app bestaat alleen voor Windows; op Unix blijft het de CLI.
+func maybeStartGUI() bool { return false }
+
 /* ---------- monitoren ---------- */
 
 // listMonitors geeft de namen van de aangesloten monitoren.

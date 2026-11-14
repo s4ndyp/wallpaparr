@@ -54,6 +54,25 @@ Configuratie staat in `%APPDATA%\wallpaparr\config.json` (Windows) of
 `~/.config/wallpaparr/config.json` (Unix); de server is ook te zetten via de
 omgevingsvariabele `WALLPAPARR_SERVER`.
 
+### Windows tray-app (instellingen + systeembalk)
+
+Dubbelklik op `wallpaparr-windows-amd64.exe` (of `wallpaparr gui` in de console): je krijgt
+een instellingenvenster met server-URL, tags, interval (minuten), weergavemodus, per monitor
+en willekeurige keuze, plus de knoppen **Opslaan en toepassen**, **Nu wisselen** en
+**Verbinding testen**. Er is geen extra runtime of framework nodig.
+
+- **Kruisje** = het venster verdwijnt naar de **systeembalk**; de client blijft draaien en
+  wisselt volgens het interval.
+- **Rechtsklik op het tray-icoon**: Instellingen…, Nu wisselen, Volgende wallpaper,
+  Verbinding testen, Per monitor aan/uit, Interval (15/30/60/180/360/1440 minuten of uit)
+  en **Afsluiten**.
+- Twee keer starten levert geen tweede icoon op (single-instance).
+- Wisselen herhaalt nooit twee keer achter elkaar hetzelfde beeld.
+- De GUI gebruikt dezelfde `config.json` als de CLI-opdrachten.
+
+Op **Unix blijft het de CLI**: een tray-icoon vraagt daar GTK/AppIndicator (extra
+afhankelijkheden en CGO), en dat weegt niet op tegen `wallpaparr set/rotate`.
+
 ### Multi-monitor
 
 | Platform | Per monitor andere wallpaper | Methode |
@@ -73,7 +92,9 @@ controleert die een syntaxcheck niet vangt: selectiemodus, klikken op de afbeeld
 fullscreen-gedrag, tagverwijdering en de bulkacties.
 
 ```bash
-npm install && node tests/ui-test.mjs     # 27 checks
+npm install && node tests/ui-test.mjs     # 27 checks (web-UI)
+node tests/ratio-test.mjs                 # 21 checks (verhoudingfilters)
+cd client && go test ./...                # keuze-logica, filters, server-URL
 ```
 
 Draait ook mee in CI als job `ui-test`.

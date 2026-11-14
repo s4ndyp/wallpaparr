@@ -111,9 +111,21 @@ jobs:
           node tests/ui-test.mjs
           node tests/ratio-test.mjs
 
+  client-test:
+    name: client-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+      - name: 🧪 Go-tests (keuze-logica, filters)
+        working-directory: client
+        run: go test ./...
+
   release:
     name: release
-    needs: [server, client, ui-test]
+    needs: [server, client, ui-test, client-test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

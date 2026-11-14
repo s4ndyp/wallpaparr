@@ -37,8 +37,20 @@ type Config struct {
 	Server     string `json:"server"`
 	Tag        string `json:"tag"`
 	PerMonitor bool   `json:"per_monitor"`
+	Random     bool   `json:"random"`
 	Every      string `json:"every"`
 	Position   string `json:"position"`
+}
+
+// Save schrijft de configuratie weg (de GUI gebruikt dit); vult defaults in.
+func (c Config) Save() error {
+	if c.Every == "" {
+		c.Every = "30m"
+	}
+	if c.Position == "" {
+		c.Position = "fill"
+	}
+	return saveConfig(c)
 }
 
 func configPath() (string, error) {
