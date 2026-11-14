@@ -13,9 +13,9 @@ Centrale wallpaper-opslag + clients voor Windows en Linux/macOS.
 
 | Onderdeel | Waarde |
 |---|---|
-| UI + API | `http://10.5.0.165/` (LAN) of `https://wallpaparr.xdio.nl/` |
+| UI + API | `https://wallpaparr.xdio.nl/` (via Zoraxy) of poort 80 op het LXC-IP |
 | Interne poort | 8090 (host-poort 80) |
-| LXC | CT 165 op Proxnux2 (2 GB) |
+| LXC | eigen Proxmox-container (2 GB) |
 | Data | named volume `wallpaparr_data` → `/pb/pb_data` |
 | Collectie | `wallpapers` (title, file, tags, width, height, bytes, source) |
 | Regels | list/view/create/update/delete = publiek (`""`) |
@@ -97,7 +97,7 @@ Dockhand-git-stack op een eigen LXC:
 
 | | |
 |---|---|
-| LXC | CT 165 (Proxnux2, 2048 MB) — `10.5.0.165` |
-| Dockhand | omgeving `wallpaparr` (id 37), git-stack `wallpaparr` (id 39) |
-| Proxy | Zoraxy-regel `wallpaparr.xdio.nl` → `10.5.0.165:80` (geen Pocket-ID-gate: geen login) |
-| DNS | AdGuard-rewrite `wallpaparr.xdio.nl` → `10.1.2.250` op beide instanties |
+| LXC | eigen Proxmox-container, 2048 MB |
+| Dockhand | omgeving `wallpaparr` + git-stack `wallpaparr` |
+| Proxy | Zoraxy-regel `wallpaparr.xdio.nl` → de stack (geen Pocket-ID-gate: geen login) |
+| DNS | AdGuard-rewrite `wallpaparr.xdio.nl` → de Zoraxy-proxy, op beide instanties |

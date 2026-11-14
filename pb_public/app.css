@@ -79,6 +79,8 @@ body {
 .ratio.on { background: rgba(122, 162, 247, 0.18); border-color: var(--accent); color: var(--text); font-weight: 600; }
 .ratio .n { color: #6b7488; margin-left: 5px; font-size: 11.5px; }
 .ratio.on .n { color: var(--accent); }
+.ratio.clear { border-color: #5a2733; color: var(--danger); }
+.ratio.clear:hover { background: #2a1620; border-color: var(--danger); }
 
 /* tags in de filterbalk — goud */
 .tags { display: flex; flex-wrap: wrap; gap: 7px; max-width: 1500px; margin: 0 auto 16px; }
@@ -130,7 +132,7 @@ body {
   padding: 2px 7px; border-radius: 6px;
 }
 .meta { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
-.title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tagsrow { display: flex; flex-wrap: wrap; gap: 5px; min-height: 22px; }
 /* tagchips onder een wallpaper — goud, met losse verwijderknop */
 .mini {

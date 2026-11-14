@@ -18,7 +18,7 @@ const state = {
   items: [],
   selected: new Set(),
   activeTags: new Set(),
-  ratios: new Set(),
+  ratio: null, // verhoudingfilter: altijd maar één tegelijk
   q: "",
   sort: "-created",
   selectMode: false,
@@ -53,14 +53,15 @@ function tagList(s) {
 }
 
 /* In welke verhoudinggroep valt deze wallpaper? 'overig' als niets in de buurt komt.
-   Symmetrisch: 3:2 valt in de 2:3-groep en 9:16 in de 16:9-groep. */
+   NIET symmetrisch: een gekantelde resolutie (9:16, 9:21) hoort bewust niet bij de
+   liggende groep — die krijgt een eigen knop zodra zulke wallpapers bestaan. */
 function bucketOf(r) {
   if (!r || !r.width || !r.height) return null;
   const x = r.width / r.height;
   let best = null;
   let bestD = Infinity;
   for (const t of RATIOS) {
-    const d = Math.min(Math.abs(Math.log(x / t.v)), Math.abs(Math.log(x * t.v)));
+    const d = Math.abs(Math.log(x / t.v));
     if (d < bestD) {
       bestD = d;
       best = t.key;
@@ -128,10 +129,7 @@ async function load() {
 function visibleItems() {
   const q = state.q.toLowerCase();
   let list = state.items.filter((r) => {
-    if (state.ratios.size) {
-      const b = bucketOf(r);
-      if (!state.ratios.has(b)) return false;
-    }
+    if (state.ratio && bucketOf(r) !== state.ratio) return false;
     const tags = tagList(r.tags);
     for (const t of state.activeTags) {
       if (!tags.some((x) => x.toLowerCase() === t.toLowerCase())) return false;
@@ -186,7 +184,8 @@ function renderTags() {
   }
 }
 
-/* Vaste verhoudingknoppen achter de zoekbalk, met het aantal per groep. */
+/* Verhoudingknoppen achter de zoekbalk: alleen groepen die echt voorkomen,
+   één tegelijk te kiezen (geen multi-select) en een wis-knop als er gefilterd wordt. */
 function renderRatios() {
   const counts = new Map();
   for (const r of state.items) {
@@ -195,35 +194,41 @@ function renderRatios() {
   }
   const nav = $("#ratios");
   nav.innerHTML = "";
+  const keys = RATIOS.filter((t) => counts.get(t.key)).map((t) => t.key);
+  const heeftOverig = !!counts.get("overig");
+  if (!keys.length && !heeftOverig) return; // niets te filteren: geen lege balk
+
   const label = document.createElement("span");
   label.className = "ratio-label";
   label.textContent = "verhouding";
   nav.appendChild(label);
 
-  for (const t of RATIOS) {
-    nav.appendChild(ratioBtn(t.key, counts.get(t.key) || 0, t.key));
-  }
-  // 'overig' alleen tonen als er echt wallpapers buiten de standaardgroepen vallen
-  if (counts.get("overig")) {
-    nav.appendChild(ratioBtn("overig", counts.get("overig"), "overige verhoudingen"));
-  }
+  for (const key of keys) nav.appendChild(ratioBtn(key, counts.get(key), key));
+  if (heeftOverig) nav.appendChild(ratioBtn("overig", counts.get("overig"), "overige verhoudingen"));
+  if (state.ratio) nav.appendChild(clearRatioBtn());
 }
 
 function ratioBtn(key, n, titel) {
-  const on = state.ratios.has(key);
+  const on = state.ratio === key;
   const b = document.createElement("button");
   b.type = "button";
   b.className = "ratio" + (on ? " on" : "");
-  // de groep is symmetrisch: 9:16 hoort bij 16:9, 2:1 bij 1:2 — vermeld dat
-  const [x, y] = key.split(":");
-  const hint = key === "overig" || x === y ? titel : `${titel} / ${y}:${x}`;
-  b.title = on ? `Filter ${hint} uit` : `Alleen ${hint}`;
+  b.title = on ? `${titel} wissen (je ziet dan alles)` : `Alleen ${titel}`;
   b.innerHTML = `${escapeHtml(key)}<span class="n">${n}</span>`;
   b.onclick = () => {
-    if (state.ratios.has(key)) state.ratios.delete(key);
-    else state.ratios.add(key);
+    state.ratio = on ? null : key; // één tegelijk; nogmaals klikken = uit
     render();
   };
+  return b;
+}
+
+function clearRatioBtn() {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ratio clear";
+  b.textContent = "× filter wissen";
+  b.title = "Verhoudingfilter wissen — je ziet dan alles";
+  b.onclick = () => { state.ratio = null; render(); };
   return b;
 }
 
@@ -301,6 +306,7 @@ function render() {
     const title = document.createElement("div");
     title.className = "title";
     title.textContent = r.title || r.file;
+    title.title = r.title || r.file; // weergave is 1 regel; volledige titel bij hover
     meta.appendChild(title);
 
     const tagsrow = document.createElement("div");
