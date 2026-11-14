@@ -2,10 +2,23 @@
 const COL = "/api/collections/wallpapers/records";
 const $ = (s) => document.querySelector(s);
 
+/* Vaste filters op beeldverhouding. Kleine verschillen (bv. 2912x1632 naast
+   echt 16:9) horen in dezelfde groep: vergelijk logaritmisch met een tolerantie. */
+const RATIOS = [
+  { key: "1:1", v: 1 },
+  { key: "1:2", v: 0.5 },
+  { key: "2:3", v: 2 / 3 },
+  { key: "16:9", v: 16 / 9 },
+  { key: "21:9", v: 21 / 9 },
+  { key: "27:9", v: 27 / 9 },
+];
+const RATIO_TOL = 0.10; // 10% afwijking valt nog in dezelfde groep
+
 const state = {
   items: [],
   selected: new Set(),
   activeTags: new Set(),
+  ratios: new Set(),
   q: "",
   sort: "-created",
   selectMode: false,
@@ -37,6 +50,23 @@ function tagList(s) {
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
+}
+
+/* In welke verhoudinggroep valt deze wallpaper? 'overig' als niets in de buurt komt.
+   Symmetrisch: 3:2 valt in de 2:3-groep en 9:16 in de 16:9-groep. */
+function bucketOf(r) {
+  if (!r || !r.width || !r.height) return null;
+  const x = r.width / r.height;
+  let best = null;
+  let bestD = Infinity;
+  for (const t of RATIOS) {
+    const d = Math.min(Math.abs(Math.log(x / t.v)), Math.abs(Math.log(x * t.v)));
+    if (d < bestD) {
+      bestD = d;
+      best = t.key;
+    }
+  }
+  return bestD <= RATIO_TOL ? best : "overig";
 }
 
 function prettify(name) {
@@ -98,6 +128,10 @@ async function load() {
 function visibleItems() {
   const q = state.q.toLowerCase();
   let list = state.items.filter((r) => {
+    if (state.ratios.size) {
+      const b = bucketOf(r);
+      if (!state.ratios.has(b)) return false;
+    }
     const tags = tagList(r.tags);
     for (const t of state.activeTags) {
       if (!tags.some((x) => x.toLowerCase() === t.toLowerCase())) return false;
@@ -152,6 +186,47 @@ function renderTags() {
   }
 }
 
+/* Vaste verhoudingknoppen achter de zoekbalk, met het aantal per groep. */
+function renderRatios() {
+  const counts = new Map();
+  for (const r of state.items) {
+    const b = bucketOf(r);
+    if (b) counts.set(b, (counts.get(b) || 0) + 1);
+  }
+  const nav = $("#ratios");
+  nav.innerHTML = "";
+  const label = document.createElement("span");
+  label.className = "ratio-label";
+  label.textContent = "verhouding";
+  nav.appendChild(label);
+
+  for (const t of RATIOS) {
+    nav.appendChild(ratioBtn(t.key, counts.get(t.key) || 0, t.key));
+  }
+  // 'overig' alleen tonen als er echt wallpapers buiten de standaardgroepen vallen
+  if (counts.get("overig")) {
+    nav.appendChild(ratioBtn("overig", counts.get("overig"), "overige verhoudingen"));
+  }
+}
+
+function ratioBtn(key, n, titel) {
+  const on = state.ratios.has(key);
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ratio" + (on ? " on" : "");
+  // de groep is symmetrisch: 9:16 hoort bij 16:9, 2:1 bij 1:2 — vermeld dat
+  const [x, y] = key.split(":");
+  const hint = key === "overig" || x === y ? titel : `${titel} / ${y}:${x}`;
+  b.title = on ? `Filter ${hint} uit` : `Alleen ${hint}`;
+  b.innerHTML = `${escapeHtml(key)}<span class="n">${n}</span>`;
+  b.onclick = () => {
+    if (state.ratios.has(key)) state.ratios.delete(key);
+    else state.ratios.add(key);
+    render();
+  };
+  return b;
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -178,6 +253,7 @@ function render() {
     : "Selectievakjes aanzetten";
 
   renderTags();
+  renderRatios();
 
   const grid = $("#grid");
   grid.innerHTML = "";

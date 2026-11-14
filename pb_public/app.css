@@ -63,9 +63,22 @@ body {
   padding: 9px 12px; border-radius: 10px; font-size: 14px; outline: none;
 }
 .input:focus { border-color: var(--accent); }
-.bar { display: flex; flex-wrap: wrap; gap: 10px; max-width: 1500px; margin: 0 auto 12px; }
-.bar .input[type="search"] { flex: 1 1 280px; }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; max-width: 1500px; margin: 0 auto 12px; }
+/* zoekbalk bewust smal: daarnaast komen de vaste verhoudingfilters */
+.bar .input[type="search"] { flex: 0 1 300px; max-width: 300px; }
 .sort { flex: 0 0 auto; }
+
+/* vaste filters op beeldverhouding */
+.ratios { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ratio-label { color: #6b7488; font-size: 12px; margin-right: 2px; }
+.ratio {
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--dim);
+  padding: 5px 9px; border-radius: 999px; font-size: 12.5px; cursor: pointer;
+}
+.ratio:hover { color: var(--text); border-color: #39415a; }
+.ratio.on { background: rgba(122, 162, 247, 0.18); border-color: var(--accent); color: var(--text); font-weight: 600; }
+.ratio .n { color: #6b7488; margin-left: 5px; font-size: 11.5px; }
+.ratio.on .n { color: var(--accent); }
 
 /* tags in de filterbalk — goud */
 .tags { display: flex; flex-wrap: wrap; gap: 7px; max-width: 1500px; margin: 0 auto 16px; }

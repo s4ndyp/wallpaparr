@@ -23,6 +23,14 @@ Centrale wallpaper-opslag + clients voor Windows en Linux/macOS.
 Uploaden kan via de web-UI (slepen of kiezen), tags zijn kommagescheiden en de client
 filtert met `?filter=(tags~'natuur')`.
 
+In de web-UI staan achter de zoekbalk vaste filters op **beeldverhouding** (1:1, 1:2, 2:3,
+16:9, 21:9, 27:9), meerdere tegelijk te combineren met zoeken en tagfilters. Kleine
+afwijkingen vallen in dezelfde groep (logaritmische vergelijking, 10% tolerantie), zodat
+bijvoorbeeld 2912×1632 bij 16:9 hoort. De groepen zijn symmetrisch: 9:16 hoort bij 16:9 en
+2:1 bij 1:2 — het is immers dezelfde verhouding, gedraaid. Wallpapers die nergens in de
+buurt komen (bijv. 4:3) verschijnen onder een extra knop **overig**, die alleen verschijnt
+als zulke afbeeldingen er echt zijn.
+
 ## Client
 
 ```bash

@@ -107,7 +107,9 @@ jobs:
       - name: 📦 jsdom installeren
         run: npm install --no-audit --no-fund
       - name: 🧪 Web-UI doortesten (jsdom)
-        run: node tests/ui-test.mjs
+        run: |
+          node tests/ui-test.mjs
+          node tests/ratio-test.mjs
 
   release:
     name: release
