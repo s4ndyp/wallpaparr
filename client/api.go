@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,13 +27,24 @@ type Record struct {
 	Created        string `json:"created"`
 }
 
-type listResponse struct {
-	Page       int      `json:"page"`
-	TotalPages int      `json:"totalPages"`
-	Items      []Record `json:"items"`
+// Screen is één rij uit de 'screens'-collectie (met expand).
+type Screen struct {
+	ID                     string `json:"id"`
+	Key                    string `json:"key"`
+	Device                 string `json:"device"`
+	Monitor                string `json:"monitor"`
+	Index                  int    `json:"index"`
+	Width                  int    `json:"width,omitempty"`
+	Height                 int    `json:"height,omitempty"`
+	LaatstGewien           string `json:"laatst_gezien,omitempty"`
+	Playlist               string `json:"playlist,omitempty"`
+	HuidigeWallpaper       string `json:"huidige_wallpaper,omitempty"`
+	Bron                   string `json:"bron,omitempty"`
+	ExpandPlaylist         string `json:"expand.playlist,omitempty"`
+	ExpandHuidigeWallpaper string `json:"expand.huidige_wallpaper,omitempty"`
 }
 
-// tagList splitst een kommagescheiden tag-string in losse tags.
+// tagList splitst een kommagescheiden tags-string in losse tags.
 func tagList(s string) []string {
 	var uit []string
 	for _, t := range strings.Split(s, ",") {
@@ -45,15 +57,16 @@ func tagList(s string) []string {
 
 // Config staat in het gebruikersconfiguratiemapje.
 type Config struct {
-	Server      string `json:"server"`
-	Tag         string `json:"tag"`
-	PerMonitor  bool   `json:"per_monitor"`
-	Random      bool   `json:"random"`
-	StartHidden bool   `json:"start_hidden"`
-	Every       string `json:"every"`
-	Position    string `json:"position"`
-	// Per-monitor profielen: tags en beeldverhoudingen per monitor. Leeg = alles.
-	Monitors []MonitorProfiel `json:"monitors,omitempty"`
+	Server      string           `json:"server"`
+	Device      string           `json:"device"`
+	Poll        int              `json:"poll"`
+	Tag         string           `json:"tag"`
+	PerMonitor  bool             `json:"per_monitor"`
+	Random      bool             `json:"random"`
+	StartHidden bool             `json:"start_hidden"`
+	Every       string           `json:"every"`
+	Position    string           `json:"position"`
+	Monitors    []MonitorProfiel `json:"monitors,omitempty"`
 }
 
 // Save schrijft de configuratie weg (de GUI gebruikt dit); vult defaults in.
@@ -83,7 +96,7 @@ func loadConfig() (Config, error) {
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
-		return cfg, nil // nog geen config = standaardwaarden
+		return cfg, nil
 	}
 	_ = json.Unmarshal(b, &cfg)
 	return cfg, nil
@@ -163,9 +176,16 @@ func fetchRecords(server, tags string) ([]Record, error) {
 	return out, nil
 }
 
-// buildFilter maakt van "a,b" het PocketBase-filter (tags~'a'||tags~'b').
+// listResponse het antwoord van een records-lijst.
+type listResponse struct {
+	Page       int      `json:"page"`
+	TotalPages int      `json:"totalPages"`
+	TotalItems int      `json:"totalItems"`
+	Items      []Record `json:"items"`
+}
+
 func buildFilter(tags string) string {
-	var parts []string
+	parts := []string{}
 	for _, t := range strings.Split(tags, ",") {
 		t = strings.TrimSpace(t)
 		if t == "" {
@@ -237,4 +257,135 @@ func download(server string, r Record) (string, error) {
 		return "", err
 	}
 	return dest, nil
+}
+
+// Screen upsert
+func screenUpsert(server string, s Screen) error {
+	bestaand, err := screenByKey(server, s.Key)
+	if err != nil {
+		return err
+	}
+	if bestaand == nil {
+		return postScreen(server, s)
+	}
+	s.ID = bestaand.ID
+	return patchScreen(server, s.ID, s)
+}
+
+func postScreen(server string, s Screen) error {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", server+"/api/collections/screens/records", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		return fmt.Errorf("POST scherm gaf HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+func patchScreen(server, id string, s Screen) error {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("PATCH", server+"/api/collections/screens/records/"+id, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		return fmt.Errorf("PATCH scherm %s gaf HTTP %d: %s", id, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+func screenByKey(server, key string) (*Screen, error) {
+	if server == "" {
+		return nil, fmt.Errorf("geen server ingesteld")
+	}
+	filter := fmt.Sprintf("(key='%s')", url.QueryEscape(key))
+	u := fmt.Sprintf("%s/api/collections/screens/records?perPage=1&filter=%s", server, url.QueryEscape(filter))
+	var rows []Screen
+	if err := getJSON(u, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return &rows[0], nil
+}
+
+func screensForDevice(server, device string) ([]Screen, error) {
+	if server == "" {
+		return nil, fmt.Errorf("geen server ingesteld")
+	}
+	filter := fmt.Sprintf("(device='%s')", url.QueryEscape(device))
+	u := fmt.Sprintf("%s/api/collections/screens/records?perPage=200&sort=index&expand=playlist,huidige_wallpaper&filter=%s",
+		server, url.QueryEscape(filter))
+	var out []Screen
+	if err := getJSON(u, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func getWallpaper(server, id string) (Record, error) {
+	if server == "" {
+		return Record{}, fmt.Errorf("geen server ingesteld")
+	}
+	var r Record
+	u := fmt.Sprintf("%s/api/collections/wallpapers/records/%s?expand=wallpapers", server, url.QueryEscape(id))
+	if err := getJSON(u, &r); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+// geschiedenisCreate veld het toegepaste beeld in de geschiedenis.
+func geschiedenisCreate(server, screenID, wpID, device, bron string) error {
+	if server == "" {
+		return fmt.Errorf("geen server ingesteld")
+	}
+	body := map[string]any{
+		"screen":    screenID,
+		"wallpaper": wpID,
+		"device":    device,
+		"bron":      bron,
+	}
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", server+"/api/collections/geschiedenis/records", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		return fmt.Errorf("geschiedenis POST gaf HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }

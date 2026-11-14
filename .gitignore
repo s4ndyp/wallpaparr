@@ -5,3 +5,7 @@ dist/
 .DS_Store
 node_modules/
 package-lock.json
+
+# client-buildartefacten
+client/dist/
+client/client

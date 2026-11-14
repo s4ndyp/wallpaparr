@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 )
 
@@ -268,4 +269,33 @@ func monitorLabel(m string, i int) string {
 		return "alle monitoren"
 	}
 	return fmt.Sprintf("%s (#%d)", friendlyMonitor(m), i)
+}
+
+// nextPick kiest voor een wissel: de vorige wallpaper wordt overgeslagen zolang er
+// genoeg andere zijn, zodat je nooit twee keer hetzelfde beeld krijgt.
+func nextPick(recs []Record, lastID string, want int, random bool) []Record {
+	kandidaten := recs
+	if lastID != "" && len(recs) > want {
+		var overig []Record
+		for _, r := range recs {
+			if r.ID != lastID {
+				overig = append(overig, r)
+			}
+		}
+		if len(overig) >= want {
+			kandidaten = overig
+		}
+	}
+	if want <= 1 || len(kandidaten) == 1 {
+		if random {
+			return []Record{kandidaten[rand.Intn(len(kandidaten))]}
+		}
+		return []Record{kandidaten[0]}
+	}
+	idx := rand.Perm(len(kandidaten))
+	out := make([]Record, 0, want)
+	for _, i := range idx[:want] {
+		out = append(out, kandidaten[i])
+	}
+	return out
 }
