@@ -144,8 +144,8 @@ async function bewaarInstellingen(s, velden) {
     ratios: velden.ratios,
     interval: velden.interval,
     random: true,
-    actief: velden.interval > 0,
-    wallpapers: velden.wallpapers,
+    actief: velden.modus === "raster" ? true : velden.interval > 0,
+    wallpapers: velden.wallpapers || [],
   };
   let plId = s.playlist;
   if (plId) {
@@ -188,6 +188,8 @@ function schermHTML(s) {
   const pl = playlistVan(s) || {};
   const wp = (s.expand && s.expand.huidige_wallpaper) || null;
   const online = isOnline(s);
+  const vast = (pl.wallpapers || []).length;
+  const modus = vast ? "raster" : "auto";
   const thumb = wp
     ? `<img class="scherm-thumb" loading="lazy" src="/api/files/${wp.collectionId}/${wp.id}/${encodeURIComponent(wp.file)}?thumb=400x0" alt="">`
     : `<div class="scherm-thumb leeg">nog niets</div>`;
@@ -209,21 +211,46 @@ function schermHTML(s) {
         ${s.bron === "handmatig" ? '<button class="btn klein" data-actie="rotatie">Terug naar rotatie</button>' : ""}
       </div>
     </div>
+
     <div class="scherm-instellingen">
-      <label>Interval <input type="number" min="0" step="1" class="input mini" data-veld="interval" value="${pl.interval ?? 30}"> min (0 = niet automatisch)</label>
-      <label>Tags <input type="text" class="input" data-veld="tags" value="${escapeHtml(pl.tags || "")}" placeholder="leeg = alle tags"></label>
-      <div class="ratio-rij">${ratioVakjes(pl, "ratio")}</div>
+      <div class="modus ${modus === "auto" ? "actief" : ""}" data-modus="auto">
+        <label class="modus-kop">
+          <input type="radio" name="modus-${s.id}" value="auto" ${modus === "auto" ? "checked" : ""}>
+          <b>Automatisch</b>
+          <span class="sub">— wisselt zelf binnen deze tags en verhoudingen</span>
+        </label>
+        <div class="modus-inhoud">
+          <label>Interval <input type="number" min="0" step="1" class="input mini" data-veld="interval" value="${pl.interval ?? 30}"> min (0 = niet automatisch)</label>
+          <label>Tags <input type="text" class="input" data-veld="tags" value="${escapeHtml(pl.tags || "")}" placeholder="leeg = alle tags"></label>
+          <div class="ratio-rij">${ratioVakjes(pl, "ratio")}</div>
+        </div>
+      </div>
+
+      <div class="modus ${modus === "raster" ? "actief" : ""}" data-modus="raster">
+        <label class="modus-kop">
+          <input type="radio" name="modus-${s.id}" value="raster" ${modus === "raster" ? "checked" : ""}>
+          <b>Raster-selectie</b>
+          <span class="sub">— alleen de afbeeldingen die je in het raster aanvinkt</span>
+        </label>
+        <div class="modus-inhoud">
+          <div class="modus-raster-rij">
+            <span class="sub" id="sel-info-${s.id}">${vast ? vast + " vaste afbeelding(en)" : "nog geen selectie"}</span>
+            <button class="btn klein" data-actie="uitselectie">Selectie uit raster</button>
+            <button class="btn klein" data-actie="leegselectie">Selectie wissen</button>
+          </div>
+        </div>
+      </div>
+
       <div class="alias-rij">
         <label>Naam <input type="text" class="input" data-veld="alias" value="${escapeHtml(s.alias || "")}" placeholder="${escapeHtml(kortMonitor(s.monitor || "scherm") + " (#" + (s.index ?? 0) + ")")}"></label>
         <button class="btn klein" data-actie="alias">Naam bewaren</button>
       </div>
+
       <div class="scherm-knoppen">
-        <span class="sub" id="sel-info-${s.id}">${(pl.wallpapers || []).length ? (pl.wallpapers || []).length + " vaste afbeelding(en)" : "selectie via tags/verhoudingen"}</span>
-        <button class="btn klein" data-actie="opslaan">Opslaan</button>
-        <button class="btn klein" data-actie="uitselectie">Selectie uit raster</button>
-        <button class="btn klein" data-actie="leegselectie">Selectie wissen</button>
+        <button class="btn klein primary" data-actie="opslaan">Opslaan</button>
       </div>
     </div>
+
     <details class="scherm-historie"><summary>laatst getoond</summary><div data-historie>laden…</div></details>
   </div>`;
 }
@@ -291,11 +318,20 @@ document.addEventListener("click", async (e) => {
   const ratios = [...kaart.querySelectorAll('[data-ratio]:checked')].map((c) => c.dataset.ratio).join(",");
 
   if (actie === "opslaan") {
+    const actiefBlok = kaart.querySelector(".modus.actief");
+    const modus = s._modus || (actiefBlok ? actiefBlok.dataset.modus : "auto");
+    const bestaand = playlistVan(s) || {};
+    const selectie = modus === "raster" ? s._selectie || bestaand.wallpapers || [] : [];
+    if (modus === "raster" && !selectie.length) {
+      toast("Geen vaste selectie: vink afbeeldingen in het raster aan en klik 'Selectie uit raster'", "err");
+      return;
+    }
     await bewaarInstellingen(s, {
       tags: leesVeld("tags"),
       ratios,
       interval: parseInt(leesVeld("interval"), 10) || 0,
-      wallpapers: s._selectie || undefined,
+      modus,
+      wallpapers: selectie,
     });
   } else if (actie === "alias") {
     const naam = leesVeld("alias").trim();
@@ -305,15 +341,41 @@ document.addEventListener("click", async (e) => {
   } else if (actie === "rotatie") {
     await terugNaarRotatie(s);
   } else if (actie === "uitselectie") {
-    // de aangevinkte wallpapers uit het raster worden de vaste selectie
+    // de aangevinkte wallpapers uit het raster worden de vaste selectie;
+    // daarmee is dit scherm automatisch in de raster-modus
     const gekozen = [...state.selected];
     if (!gekozen.length) return toast("Selecteer eerst wallpapers in het raster (knop Selecteren)", "err");
     s._selectie = gekozen;
+    s._modus = "raster";
+    const radio = kaart.querySelector('input[type="radio"][value="raster"]');
+    if (radio) radio.checked = true;
+    for (const blok of kaart.querySelectorAll(".modus")) blok.classList.toggle("actief", blok.dataset.modus === "raster");
     document.querySelector(`#sel-info-${s.id}`).textContent = gekozen.length + " vaste afbeelding(en)";
-    toast("Klik nu op Opslaan om de selectie vast te leggen", "ok");
+    toast("Raster-selectie gekozen — klik op Opslaan om vast te leggen", "ok");
   } else if (actie === "leegselectie") {
+    // selectie leegmaken = terug naar automatisch
     s._selectie = [];
-    document.querySelector(`#sel-info-${s.id}`).textContent = "selectie via tags/verhoudingen";
+    s._modus = "auto";
+    const radio = kaart.querySelector('input[type="radio"][value="auto"]');
+    if (radio) radio.checked = true;
+    for (const blok of kaart.querySelectorAll(".modus")) blok.classList.toggle("actief", blok.dataset.modus === "auto");
+    document.querySelector(`#sel-info-${s.id}`).textContent = "nog geen selectie";
+    toast("Selectie leeggemaakt — met Opslaan gaat dit scherm terug naar automatisch", "ok");
+  }
+});
+
+// een modus kiezen: het gekozen blok oplichten, het andere dimmen
+document.addEventListener("change", (e) => {
+  const radio = e.target.closest('.scherm-instellingen input[type="radio"][name^="modus-"]');
+  if (!radio) return;
+  const kaart = radio.closest(".scherm");
+  const s = schermen.find((x) => x.id === kaart.dataset.id);
+  if (s) s._modus = radio.value;
+  for (const blok of kaart.querySelectorAll(".modus")) {
+    blok.classList.toggle("actief", blok.dataset.modus === radio.value);
+  }
+  if (radio.value === "raster") {
+    toast("Vink in het raster de afbeeldingen aan, klik 'Selectie uit raster' en daarna Opslaan", "ok");
   }
 });
 
@@ -410,6 +472,34 @@ async function laadGebruik() {
     // tellen is een extraatje; een fout mag de lijst niet blokkeren
   }
   if (typeof render === "function") render();
+}
+
+/* ---------- inklapbaar paneel (standaard ingeklapt) ---------- */
+
+const paneel = $("#schermenpaneel");
+const paneelKnop = $("#schermen-toggle");
+
+function zetPaneel(open) {
+  if (!paneel || !paneelKnop) return;
+  paneel.classList.toggle("ingeklapt", !open);
+  paneelKnop.textContent = open ? "Schermen inklappen" : "Schermen uitklappen";
+  paneelKnop.setAttribute("aria-expanded", open ? "true" : "false");
+  try {
+    localStorage.setItem("wp_schermen_open", open ? "1" : "0");
+  } catch (e) {
+    // localStorage kan geblokkeerd zijn; dan klapt het paneel gewoon niet open bij herladen
+  }
+}
+
+if (paneelKnop) {
+  paneelKnop.onclick = () => zetPaneel(paneel.classList.contains("ingeklapt"));
+  let open = false;
+  try {
+    open = localStorage.getItem("wp_schermen_open") === "1";
+  } catch (e) {
+    open = false;
+  }
+  zetPaneel(open);
 }
 
 laadSchermen();

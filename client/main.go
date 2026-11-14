@@ -32,7 +32,7 @@ import (
 	"runtime"
 )
 
-const version = "0.8.1"
+const version = "0.8.2"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `wallpaparr %s — wallpaper-client voor de Wallpaparr-server (de server stuurt)

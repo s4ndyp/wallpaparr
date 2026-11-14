@@ -105,6 +105,23 @@ const knop = (id, actie) => kaart(id).querySelector(`[data-actie="${actie}"]`);
 const ok = [];
 const check = (naam, waar, extra = "") => ok.push({ naam, waar, extra });
 
+/* ---------- paneel: standaard ingeklapt ---------- */
+check("schermenpaneel is standaard ingeklapt", $("#schermenpaneel").classList.contains("ingeklapt"),
+  $("#schermenpaneel").className);
+check("de knop heet 'Schermen uitklappen'", $("#schermen-toggle").textContent === "Schermen uitklappen",
+  $("#schermen-toggle").textContent);
+$("#schermen-toggle").click();
+await tick();
+check("uitklappen toont de lijst en wisselt het label",
+  !$("#schermenpaneel").classList.contains("ingeklapt") && $("#schermen-toggle").textContent === "Schermen inklappen",
+  $("#schermen-toggle").textContent);
+check("de schermen zijn zichtbaar na uitklappen", q(".scherm").length === 3, String(q(".scherm").length));
+$("#schermen-toggle").click();
+await tick();
+check("weer inklappen werkt", $("#schermenpaneel").classList.contains("ingeklapt"));
+$("#schermen-toggle").click();
+await tick();
+
 /* ---------- paneel ---------- */
 check("drie schermen in het paneel", q(".scherm").length === 3, String(q(".scherm").length));
 check("statusregel met online-aantal", $("#schermen-status").textContent.includes("3 scherm(en) · 2 online"),
@@ -166,6 +183,26 @@ check("nieuwe playlist wordt aan het scherm gekoppeld",
   patches.some((p) => p.url.endsWith("sch2") && p.body.playlist === "pl-nieuw"),
   JSON.stringify(patches.map((p) => p.body)));
 
+/* ---------- automatisch vs raster-selectie ---------- */
+check("modus 'automatisch' is actief bij een playlist zonder vaste selectie",
+  kaart("sch1").querySelector('.modus[data-modus="auto"]').classList.contains("actief") &&
+  kaart("sch1").querySelector('input[value="auto"]').checked,
+  kaart("sch1").querySelector(".modus.actief").dataset.modus);
+check("modus 'raster' is actief bij een playlist mét vaste selectie",
+  kaart("sch3").querySelector('.modus[data-modus="auto"]') !== null,
+  "beide blokken bestaan");
+// kiezen van raster licht het juiste blok op
+kaart("sch1").querySelector('input[value="raster"]').checked = true;
+kaart("sch1").querySelector('input[value="raster"]').dispatchEvent(new w.Event("change", { bubbles: true }));
+await tick();
+check("raster kiezen licht het rasterblok op",
+  kaart("sch1").querySelector('.modus[data-modus="raster"]').classList.contains("actief") &&
+  !kaart("sch1").querySelector('.modus[data-modus="auto"]').classList.contains("actief"));
+// terug naar automatisch + opslaan wist de vaste selectie
+kaart("sch1").querySelector('input[value="auto"]').checked = true;
+kaart("sch1").querySelector('input[value="auto"]').dispatchEvent(new w.Event("change", { bubbles: true }));
+await tick();
+
 /* ---------- vaste selectie uit het raster ---------- */
 // selectiemodus aan + één kaart aanklikken (via de gewone UI)
 $("#selmode").click();
@@ -176,6 +213,9 @@ knop("sch1", "uitselectie").click();
 await tick();
 check("paneel meldt de vaste selectie", kaart("sch1").querySelector(`#sel-info-sch1`).textContent.includes("1 vaste"),
   kaart("sch1").querySelector(`#sel-info-sch1`).textContent);
+check("'Selectie uit raster' zet de raster-modus aan",
+  kaart("sch1").querySelector('input[value="raster"]').checked &&
+  kaart("sch1").querySelector('.modus[data-modus="raster"]').classList.contains("actief"));
 
 patches.length = 0;
 knop("sch1", "opslaan").click();
@@ -185,6 +225,18 @@ const plPati = () => patches.filter((p) => p.url.includes("/playlists/records/pl
 const pl = () => plPati().pop() || null;
 check("vaste selectie wordt in de playlist gezet", pl() && Array.isArray(pl().body.wallpapers) && pl().body.wallpapers.length === 1,
   JSON.stringify(pl() ? pl().body.wallpapers : null));
+
+/* ---------- automatisch opslaan wist de vaste selectie ---------- */
+patches.length = 0;
+kaart("sch1").querySelector('input[value="auto"]').checked = true;
+kaart("sch1").querySelector('input[value="auto"]').dispatchEvent(new w.Event("change", { bubbles: true }));
+await tick();
+knop("sch1", "opslaan").click();
+await tick();
+const plAuto = () => patches.filter((p) => p.url.includes("/playlists/records/pl1")).pop() || null;
+check("automatisch opslaan stuurt een lege raster-selectie mee",
+  plAuto() && Array.isArray(plAuto().body.wallpapers) && plAuto().body.wallpapers.length === 0,
+  JSON.stringify(plAuto() ? plAuto().body.wallpapers : null));
 
 /* ---------- alias van een scherm ---------- */
 check("paneel toont de alias i.p.v. het apparaatpad", kaart("sch1").querySelector(".scherm-kop b").textContent === "Bureau links",

@@ -13,8 +13,6 @@ Tray-app met instellingenvenster (pure Win32 via syscalls, geen dependencies).
 */
 
 import (
-	_ "embed"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,9 +25,6 @@ import (
 	"time"
 	"unsafe"
 )
-
-//go:embed assets/wallpaparr.ico
-var icoData []byte
 
 /* ---------- Win32 basis ---------- */
 
@@ -69,6 +64,8 @@ var (
 	pCreateFontW            = gdi32.NewProc("CreateFontW")
 	pCreateMutexW           = kernel32.NewProc("CreateMutexW")
 	pDwmSetWindowAttribute  = dwmapi.NewProc("DwmSetWindowAttribute")
+	pGetSystemMetrics       = user32.NewProc("GetSystemMetrics")
+	pFindWindowW            = user32.NewProc("FindWindowW")
 	pShellExecuteW          = shell32.NewProc("ShellExecuteW")
 )
 
@@ -400,24 +397,40 @@ func (s *guiState) setStatus(m string) {
 /* ---------- tray ---------- */
 
 var trayHicon uintptr
+var verbergHintGegeven bool
+var trayTipTekst = "Wallpaparr v" + version
 
 // taskbarCreatedMsg: door Windows geregistreerd bericht dat de taakbalk opnieuw is
 // gestart. Zonder heraanmelding is het icoon daarna definitief weg.
 var taskbarCreatedMsg uint32
 
-func loadIcon() uintptr {
-	if len(icoData) > 22 {
-		off := int(binary.LittleEndian.Uint32(icoData[18:22]))
-		size := int(binary.LittleEndian.Uint32(icoData[14:18]))
-		if off > 0 && size > 0 && off+size <= len(icoData) {
+// loadIcon geeft een icoon in de gevraagde maat (0 = laat Windows kiezen).
+func loadIcon(maat int) uintptr {
+	entries := icoEntries(icoData)
+	if len(entries) > 0 {
+		e, ok := kiesIcoon(entries, maat)
+		if ok {
 			h := call(pCreateIconFromRes,
-				uintptr(unsafe.Pointer(&icoData[off])), uintptr(size), 1, 0x00030000, 0, 0, 0)
+				uintptr(unsafe.Pointer(&icoData[e.off])), uintptr(e.size), 1, 0x00030000,
+				uintptr(maat), uintptr(maat), 0)
 			if h != 0 {
+				guiLog("icoon geladen: %dx%d (%d bytes, %d beelden in het bestand)", e.breedte, e.breedte, e.size, len(entries))
 				return h
 			}
+			guiLog("CreateIconFromResourceEx gaf 0 voor %dx%d — terugval op het systeemicoon", e.breedte, e.breedte)
 		}
 	}
 	return call(pLoadIconW, 0, idiApplication)
+}
+
+// trayMaat is de maat die Windows voor systeembalkiconen gebruikt.
+func trayMaat() int {
+	// SM_CXSMICON = 49
+	m := int(call(pGetSystemMetrics, 49))
+	if m < 16 || m > 64 {
+		m = 16
+	}
+	return m
 }
 
 func trayData(cb func(*notifyIconData)) {
@@ -429,12 +442,14 @@ func trayData(cb func(*notifyIconData)) {
 }
 
 func trayAdd(status string) {
-	trayHicon = loadIcon()
+	trayTipTekst = "Wallpaparr v" + version + " — " + status
+	trayHicon = loadIcon(trayMaat())
+	guiLog("tray: icoon-handle=%#x, maat=%d", trayHicon, trayMaat())
 	trayData(func(nid *notifyIconData) {
 		nid.UFlags = nifMessage | nifIcon | nifTip
 		nid.UCallbackMessage = trayMsg
 		nid.HIcon = trayHicon
-		putStr(nid.SzTip[:], "Wallpaparr — "+status)
+		putStr(nid.SzTip[:], trayTipTekst)
 		if r := call(pShellNotifyIconW, nimAdd, uintptr(unsafe.Pointer(nid))); r == 0 {
 			guiLog("tray-icoon toevoegen mislukt (meldingenbal onbereikbaar in deze sessie?)")
 		} else {
@@ -443,10 +458,27 @@ func trayAdd(status string) {
 	})
 }
 
+// trayHoud meldt het icoon opnieuw aan. Verloor de shell het icoon (hapering bij
+// het opstarten, explorer die herstartte, enz.), dan komt het hiermee terug —
+// zonder dat de gebruiker iets hoeft te doen.
+func trayHoud() {
+	if trayHicon == 0 {
+		trayHicon = loadIcon(trayMaat())
+	}
+	trayData(func(nid *notifyIconData) {
+		nid.UFlags = nifMessage | nifIcon | nifTip
+		nid.UCallbackMessage = trayMsg
+		nid.HIcon = trayHicon
+		putStr(nid.SzTip[:], trayTipTekst)
+		call(pShellNotifyIconW, nimAdd, uintptr(unsafe.Pointer(nid)))
+	})
+}
+
 func trayTip(status string) {
+	trayTipTekst = "Wallpaparr v" + version + " — " + status
 	trayData(func(nid *notifyIconData) {
 		nid.UFlags = nifTip
-		putStr(nid.SzTip[:], "Wallpaparr — "+status)
+		putStr(nid.SzTip[:], trayTipTekst)
 		call(pShellNotifyIconW, 2 /*NIM_MODIFY*/, uintptr(unsafe.Pointer(nid)))
 	})
 }
@@ -480,7 +512,7 @@ func showTrayMenu() {
 
 	appendMenu(menu, mfString|mfDisabled, 0, "Wallpaparr v"+version)
 	appendMenu(menu, mfSeparator, 0, "")
-	appendMenu(menu, mfString, idMSettings, "Instellingen…")
+	appendMenu(menu, mfString, idMSettings, "Venster tonen (instellingen)")
 	appendMenu(menu, mfString, idMNow, "Nu synchroniseren")
 	appendMenu(menu, mfString, idMTest, "Verbinding testen")
 	appendMenu(menu, mfString, idMProfiles, "Open web-UI")
@@ -728,7 +760,13 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	case wmClose:
 		// kruisje = naar de systeembalk, niet stoppen
 		call(pShowWindow, hwnd, swHide)
-		g.setStatus("draait op de achtergrond (rechtsklik op het tray-icoon voor het menu)")
+		g.setStatus("draait op de achtergrond — klik op het Wallpaparr-icoon in de systeembalk (of start de app opnieuw om dit venster terug te halen)")
+		if !verbergHintGegeven {
+			verbergHintGegeven = true
+			trayBalloon("Wallpaparr draait nog",
+				"Het venster is verborgen. Klik op het Wallpaparr-icoon in de systeembalk (achter het pijltje ^ naast de klok). "+
+					"Zie je het icoon niet? Start Wallpaparr opnieuw: het venster komt dan terug en je kunt hem daar afsluiten.")
+		}
 		return 0
 	case wmDestroy:
 		call(pPostQuitMessage, 0)
@@ -857,10 +895,12 @@ func poller() {
 	haalMonitoren()
 	veilig("eerste synchronisatie", doe)
 
-	// elke seconde kijken of het poll-interval verstreken is (interval is instelbaar)
+	// elke seconde kijken of het poll-interval verstreken is (interval is instelbaar);
+	// elke 30 s ook het tray-icoon opnieuw aanmelden (herstel als de shell het kwijtraakte)
 	tik := time.NewTicker(time.Second)
 	defer tik.Stop()
 	volgende := time.Now().Add(time.Duration(pollSeconden(g.getCfg())) * time.Second)
+	volgendeTray := time.Now().Add(30 * time.Second)
 
 	for {
 		select {
@@ -898,6 +938,10 @@ func poller() {
 				veilig("monitoren ophalen", haalMonitoren)
 			}
 		case <-tik.C:
+			if !time.Now().Before(volgendeTray) {
+				veilig("tray-icoon herstellen", trayHoud)
+				volgendeTray = time.Now().Add(30 * time.Second)
+			}
 			if !time.Now().Before(volgende) {
 				veilig("pollen", doe)
 				volgende = time.Now().Add(time.Duration(pollSeconden(g.getCfg())) * time.Second)
@@ -925,9 +969,18 @@ func runGUI() error {
 	if r, _, e := pCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(u16("WallpaparrTrayMutex")))); r == 0 {
 		return fmt.Errorf("mutex maken mislukt")
 	} else if e == syscall.Errno(183) { // ERROR_ALREADY_EXISTS
-		call(pMessageBoxW, 0,
-			uintptr(unsafe.Pointer(u16("Wallpaparr draait al (zie het tray-icoon)."))),
-			uintptr(unsafe.Pointer(u16("Wallpaparr"))), 0x40)
+		// Er draait al een instantie: haal dat venster naar voren zodat de app altijd
+		// bereikbaar is, ook als het tray-icoon (nog) niet zichtbaar is.
+		klasse := u16("WallpaparrTrayWindow")
+		if hw := call(pFindWindowW, uintptr(unsafe.Pointer(klasse)), 0); hw != 0 {
+			call(pPostMessageW, hw, msgShow, 0, 0)
+			guiLog("tweede start: bestaand venster naar voren gehaald (hwnd=%#x)", hw)
+		} else {
+			guiLog("tweede start: geen bestaand venster gevonden")
+			call(pMessageBoxW, 0,
+				uintptr(unsafe.Pointer(u16("Wallpaparr draait al. Kijk in de systeembalk (pijltje ^) naar het Wallpaparr-icoon; daar kun je ook afsluiten."))),
+				uintptr(unsafe.Pointer(u16("Wallpaparr"))), 0x40)
+		}
 		return nil
 	}
 
@@ -955,7 +1008,7 @@ func runGUI() error {
 	g.setCfg(cfg)
 	guiLog("start: versie=%s server=%q poll=%ds verborgen=%v", version, cfg.Server, pollSeconden(cfg), cfg.StartHidden)
 
-	icon := loadIcon()
+	icon := loadIcon(32)
 	hInst := call(pGetModuleHandleW, 0)
 	taskbarCreatedMsg = uint32(call(pRegisterWindowMessageW, uintptr(unsafe.Pointer(u16("TaskbarCreated")))))
 	klasse := u16("WallpaparrTrayWindow")
@@ -991,7 +1044,7 @@ func runGUI() error {
 		call(pShowWindow, hwnd, swHide)
 	}
 	trayAdd("v" + version + " — klaar")
-	if eersteKeer {
+	if eersteKeer || cfg.StartHidden {
 		trayBalloon("Wallpaparr", "De client draait in de systeembalk. Zie je het icoon niet meteen? Klik op het pijltje ^ naast de klok en sleep het naar de taakbalk.")
 	}
 	go poller()

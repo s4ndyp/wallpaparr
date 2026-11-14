@@ -240,3 +240,22 @@ body {
 }
 .toast.err { border-left-color: var(--danger); }
 .toast.ok { border-left-color: var(--ok); }
+
+/* inklapbaar schermenpaneel (standaard ingeklapt) */
+.paneel.ingeklapt #schermenlijst { display: none; }
+#schermen-toggle { min-width: 150px; }
+.paneel-kop h2 { margin: 0; }
+
+/* twee duidelijke modi per scherm: automatisch (tags/verhoudingen) of raster-selectie */
+.modus {
+  border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 6px; background: #0f1219;
+}
+.modus.actief { border-color: var(--accent); background: #12172380; }
+.modus:not(.actief) .modus-inhoud { opacity: .45; }
+.modus-kop { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #dfe4ee; }
+.modus-kop input[type="radio"] { accent-color: var(--accent); }
+.modus-kop .sub { color: var(--dim); }
+.modus-inhoud { display: flex; flex-direction: column; gap: 6px; padding-left: 22px; }
+.modus-inhoud .ratio-rij { display: flex; flex-wrap: wrap; gap: 8px; }
+.modus-raster-rij { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
