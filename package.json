@@ -1,0 +1,11 @@
+{
+  "name": "wallpaparr-ui-test",
+  "private": true,
+  "description": "Headless test van de Wallpaparr web-UI (jsdom)",
+  "scripts": {
+    "test": "node tests/ui-test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0"
+  }
+}

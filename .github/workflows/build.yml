@@ -96,9 +96,22 @@ jobs:
           path: client/dist/*
           if-no-files-found: error
 
+  ui-test:
+    name: ui-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: 📦 jsdom installeren
+        run: npm install --no-audit --no-fund
+      - name: 🧪 Web-UI doortesten (jsdom)
+        run: node tests/ui-test.mjs
+
   release:
     name: release
-    needs: [server, client]
+    needs: [server, client, ui-test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

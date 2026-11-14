@@ -58,6 +58,18 @@ omgevingsvariabele `WALLPAPARR_SERVER`.
 Ontbreken de tools, dan valt de client netjes terug op één wallpaper voor alle monitoren
 (hij meldt dat op de console).
 
+## Testen
+
+De web-UI heeft een headless interactietest (jsdom, geen server nodig) die de logica
+controleert die een syntaxcheck niet vangt: selectiemodus, klikken op de afbeelding,
+fullscreen-gedrag, tagverwijdering en de bulkacties.
+
+```bash
+npm install && node tests/ui-test.mjs     # 27 checks
+```
+
+Draait ook mee in CI als job `ui-test`.
+
 ## Bouwen
 
 Alles gaat via GitHub Actions (push naar `main`):
