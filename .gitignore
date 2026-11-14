@@ -1,0 +1,5 @@
+pb_data/
+dist/
+.env
+*.zip
+.DS_Store
