@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,10 +28,21 @@ func hostname() string {
 	if h := os.Getenv("HOSTNAME"); h != "" {
 		return h
 	}
-	if u, err := user.Current(); err == nil {
-		return u.HomeDir
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return h
 	}
 	return "wallpaparr-client"
+}
+
+// kiesDevice geeft het device-ID. Een pad (oude configs vulden de thuismap) of
+// een leeg veld wordt vervangen door de machinenaam.
+func kiesDevice(cfg *Config) string {
+	d := strings.TrimSpace(cfg.Device)
+	if d == "" || strings.HasPrefix(d, "/") || strings.ContainsAny(d, `\\/`) {
+		d = hostname()
+		cfg.Device = d
+	}
+	return d
 }
 
 func fail(err error) {
@@ -84,7 +94,7 @@ func cmdStatus() {
 	if cfg.Server == "" {
 		fail(fmt.Errorf("geen server ingesteld — eerst: wallpaparr config --server <url>"))
 	}
-	screens, err := screensForDevice(cfg.Server, cfg.Device)
+	screens, err := screensForDevice(cfg.Server, kiesDevice(&cfg))
 	if err != nil {
 		fail(err)
 	}
@@ -253,6 +263,11 @@ func cmdLuister(args []string) {
 		fail(fmt.Errorf("geen monitoren gevonden"))
 	}
 
+	device := kiesDevice(&cfg)
+	if err := cfg.Save(); err != nil {
+		fail(err)
+	}
+
 	sp, err := statePath()
 	if err != nil {
 		fail(err)
@@ -264,7 +279,7 @@ func cmdLuister(args []string) {
 	apply := func(screenID, monitor string, wp Record) error {
 		return werk(cfg.Server, screenID, monitor, wp, false)
 	}
-	if err := runPlayer(cfg.Server, mons, time.Duration(poll)*time.Second, sp, apply); err != nil {
+	if err := runPlayer(cfg.Server, device, mons, time.Duration(poll)*time.Second, sp, apply); err != nil {
 		fail(err)
 	}
 }

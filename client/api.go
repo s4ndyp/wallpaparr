@@ -164,7 +164,7 @@ func fetchRecords(server, tags string) ([]Record, error) {
 	for page := 1; ; page++ {
 		u := fmt.Sprintf("%s/api/collections/wallpapers/records?page=%d&perPage=200&sort=-created%s",
 			server, page, extra)
-		var lr listResponse
+		var lr recordsResponse[Record]
 		if err := getJSON(u, &lr); err != nil {
 			return nil, err
 		}
@@ -176,12 +176,14 @@ func fetchRecords(server, tags string) ([]Record, error) {
 	return out, nil
 }
 
-// listResponse het antwoord van een records-lijst.
-type listResponse struct {
-	Page       int      `json:"page"`
-	TotalPages int      `json:"totalPages"`
-	TotalItems int      `json:"totalItems"`
-	Items      []Record `json:"items"`
+// recordsResponse is het antwoord van een PocketBase-recordslijst: een object
+// met page/items — dus nooit een kale array.
+type recordsResponse[T any] struct {
+	Page       int `json:"page"`
+	PerPage    int `json:"perPage"`
+	TotalPages int `json:"totalPages"`
+	TotalItems int `json:"totalItems"`
+	Items      []T `json:"items"`
 }
 
 func buildFilter(tags string) string {
@@ -320,30 +322,30 @@ func screenByKey(server, key string) (*Screen, error) {
 	if server == "" {
 		return nil, fmt.Errorf("geen server ingesteld")
 	}
-	filter := fmt.Sprintf("(key='%s')", url.QueryEscape(key))
+	filter := fmt.Sprintf("(key='%s')", strings.ReplaceAll(key, "'", "\\'"))
 	u := fmt.Sprintf("%s/api/collections/screens/records?perPage=1&filter=%s", server, url.QueryEscape(filter))
-	var rows []Screen
-	if err := getJSON(u, &rows); err != nil {
+	var lr recordsResponse[Screen]
+	if err := getJSON(u, &lr); err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
+	if len(lr.Items) == 0 {
 		return nil, nil
 	}
-	return &rows[0], nil
+	return &lr.Items[0], nil
 }
 
 func screensForDevice(server, device string) ([]Screen, error) {
 	if server == "" {
 		return nil, fmt.Errorf("geen server ingesteld")
 	}
-	filter := fmt.Sprintf("(device='%s')", url.QueryEscape(device))
+	filter := fmt.Sprintf("(device='%s')", strings.ReplaceAll(device, "'", "\\'"))
 	u := fmt.Sprintf("%s/api/collections/screens/records?perPage=200&sort=index&expand=playlist,huidige_wallpaper&filter=%s",
 		server, url.QueryEscape(filter))
-	var out []Screen
-	if err := getJSON(u, &out); err != nil {
+	var lr recordsResponse[Screen]
+	if err := getJSON(u, &lr); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return lr.Items, nil
 }
 
 func getWallpaper(server, id string) (Record, error) {

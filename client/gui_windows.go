@@ -312,6 +312,7 @@ type guiState struct {
 	status string
 	cmds   chan guiCmd
 
+	device   string          // machinenaam zoals de server die kent
 	monitors []string        // monitornamen (door de poller gevuld; COM hoort daar)
 	stats    []monitorStatus // wat de server nu per monitor toont
 
@@ -331,6 +332,9 @@ var g = &guiState{cmds: make(chan guiCmd, 8)}
 
 func (s *guiState) setCfg(c Config) { s.mu.Lock(); s.cfg = c; s.mu.Unlock() }
 func (s *guiState) getCfg() Config  { s.mu.Lock(); defer s.mu.Unlock(); return s.cfg }
+
+func (s *guiState) setDevice(d string) { s.mu.Lock(); s.device = d; s.mu.Unlock() }
+func (s *guiState) getDevice() string  { s.mu.Lock(); defer s.mu.Unlock(); return s.device }
 
 func (s *guiState) setMonitors(m []string) { s.mu.Lock(); s.monitors = m; s.mu.Unlock() }
 func (s *guiState) getMonitors() []string {
@@ -757,9 +761,9 @@ func poller() {
 		f()
 	}
 
-	device := hostname()
+	device := g.getDevice()
 	if device == "" {
-		device = "wallpaparr-client"
+		device = hostname()
 	}
 	laatste := loadState(statePadOf())
 
@@ -943,6 +947,10 @@ func runGUI() error {
 	if cfg.Position == "" {
 		cfg.Position = "fill"
 	}
+	if d := kiesDevice(&cfg); d != cfg.Device {
+		_ = cfg.Save()
+	}
+	g.setDevice(cfg.Device)
 	g.setCfg(cfg)
 	guiLog("start: versie=%s server=%q poll=%ds verborgen=%v", version, cfg.Server, pollSeconden(cfg), cfg.StartHidden)
 

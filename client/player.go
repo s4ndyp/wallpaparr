@@ -28,10 +28,9 @@ type applier func(screenID, monitor string, wp Record) error
 // runPlayer de luister-loop: elke poll seconden zoekt de server naar de schermen
 // van device, zorgt dat elk lokaal bemonsterd een scherm-record heeft en past
 // aan wanneer de server verwijst.
-func runPlayer(server string, monitoren []string, poll time.Duration, statePath string, apply applier) error {
-	device := hostname()
+func runPlayer(server, device string, monitoren []string, poll time.Duration, statePath string, apply applier) error {
 	if device == "" {
-		device = "wallpaparr-client"
+		device = hostname()
 	}
 	last := loadState(statePath)
 	ticker := time.NewTicker(poll)
