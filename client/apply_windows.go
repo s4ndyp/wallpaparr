@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -273,11 +272,5 @@ func maybeStartGUI() bool {
 }
 
 func friendlyMonitor(id string) string {
-	// \\?\DISPLAY#DEL40E8#5&2b8f...&0&UID4352#{guid}
-	s := strings.TrimPrefix(id, `\\?\`)
-	parts := strings.Split(s, "#")
-	if len(parts) >= 2 && parts[1] != "" {
-		return parts[1]
-	}
-	return id
+	return verkortMonitor(id)
 }

@@ -39,10 +39,30 @@ function playlistVan(s) {
   return (s.expand && s.expand.playlist) || null;
 }
 
+// kortMonitor maakt van een Windows COM-monitorpad iets leesbaars:
+// \\?\DISPLAY#AOC2702#...&UID4352#{...} -> "AOC2702 UID4352"
+// (drie identieke monitors hebben dezelfde naam maar een eigen UID).
+function kortMonitor(m) {
+  const s = String(m || "").replace(/^\\\\\?\\/, "");
+  const d = s.split("#");
+  if (d.length >= 2 && d[0] === "DISPLAY" && d[1]) {
+    let naam = d[1];
+    if (d[2]) {
+      const i = d[2].indexOf("UID");
+      if (i >= 0) {
+        const u = d[2].slice(i).split(/[#{]/)[0];
+        if (u) naam += " " + u;
+      }
+    }
+    return naam;
+  }
+  return m;
+}
+
 // schermNaam: de alias is leidend — die zet je hier zelf; anders een leesbare terugval.
 function schermNaam(s) {
   if (s.alias) return s.alias;
-  const samen = ((s.device || "") + " " + (s.monitor || "")).trim();
+  const samen = ((s.device || "") + " " + kortMonitor(s.monitor || "")).trim();
   return samen || s.key || "scherm";
 }
 
@@ -119,7 +139,7 @@ async function wisselNu(s) {
 async function bewaarInstellingen(s, velden) {
   const pl = playlistVan(s);
   const body = {
-    naam: "scherm " + (s.device || "") + " " + (s.monitor || s.key),
+    naam: "scherm " + schermNaam(s),
     tags: velden.tags,
     ratios: velden.ratios,
     interval: velden.interval,
@@ -175,7 +195,7 @@ function schermHTML(s) {
   <div class="scherm" data-id="${s.id}">
     <div class="scherm-kop">
       <b>${escapeHtml(schermNaam(s))}</b>
-      <span class="sub">${escapeHtml(s.device || "?")} · ${escapeHtml(s.monitor || "")} #${s.index ?? ""} · ${s.width || "?"}×${s.height || "?"}</span>
+      <span class="sub">${escapeHtml(s.device || "?")} · ${escapeHtml(kortMonitor(s.monitor || ""))} #${s.index ?? ""} · ${s.width || "?"}×${s.height || "?"}</span>
       <span class="stip ${online ? "aan" : "uit"}" title="${kleurOnline(s)}">${online ? "online" : "offline"}</span>
     </div>
     <div class="scherm-nu">
@@ -194,7 +214,7 @@ function schermHTML(s) {
       <label>Tags <input type="text" class="input" data-veld="tags" value="${escapeHtml(pl.tags || "")}" placeholder="leeg = alle tags"></label>
       <div class="ratio-rij">${ratioVakjes(pl, "ratio")}</div>
       <div class="alias-rij">
-        <label>Naam <input type="text" class="input" data-veld="alias" value="${escapeHtml(s.alias || "")}" placeholder="${escapeHtml((s.monitor || "scherm") + " (#" + (s.index ?? 0) + ")")}"></label>
+        <label>Naam <input type="text" class="input" data-veld="alias" value="${escapeHtml(s.alias || "")}" placeholder="${escapeHtml(kortMonitor(s.monitor || "scherm") + " (#" + (s.index ?? 0) + ")")}"></label>
         <button class="btn klein" data-actie="alias">Naam bewaren</button>
       </div>
       <div class="scherm-knoppen">
@@ -323,7 +343,7 @@ function toonSchermKiezer(anker, wpId) {
       .map(
         (s) => `<button class="kiezer-rij" data-scherm="${s.id}">
           <b>${escapeHtml(schermNaam(s))}</b>
-          <span class="sub">${escapeHtml(s.device || "")} ${escapeHtml(s.monitor || "")} #${s.index ?? ""} · ${s.width || "?"}×${s.height || "?"}${isOnline(s) ? "" : " · offline"}</span>
+          <span class="sub">${escapeHtml(s.device || "")} ${escapeHtml(kortMonitor(s.monitor || ""))} #${s.index ?? ""} · ${s.width || "?"}×${s.height || "?"}${isOnline(s) ? "" : " · offline"}</span>
         </button>`
       )
       .join("");

@@ -34,6 +34,31 @@ func hostname() string {
 	return "wallpaparr-client"
 }
 
+// verkortMonitor maakt van een Windows COM-monitorpad iets leesbaars:
+// `\\?\DISPLAY#AOC2702#5&24a0a36a&0&UID4352#{guid}` -> "AOC2702 UID4352".
+// Het UID-stuk is nodig: drie identieke monitors hebben dezelfde naam maar een
+// eigen UID, en anders krijgen ze alle drie hetzelfde label.
+func verkortMonitor(id string) string {
+	s := strings.TrimPrefix(id, `\\?\`)
+	delen := strings.Split(s, "#")
+	if len(delen) >= 2 && delen[0] == "DISPLAY" && delen[1] != "" {
+		naam := delen[1]
+		if len(delen) >= 3 {
+			if i := strings.Index(delen[2], "UID"); i >= 0 {
+				uid := delen[2][i:]
+				if j := strings.IndexAny(uid, "#{"); j > 0 {
+					uid = uid[:j]
+				}
+				if uid != "" {
+					naam += " " + uid
+				}
+			}
+		}
+		return naam
+	}
+	return id
+}
+
 // kiesDevice geeft het device-ID. Een pad (oude configs vulden de thuismap) of
 // een leeg veld wordt vervangen door de machinenaam.
 func kiesDevice(cfg *Config) string {

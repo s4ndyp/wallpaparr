@@ -46,6 +46,14 @@ const SCHERMEN = [
     expand: { huidige_wallpaper: WP[2] },
   },
 ];
+const SCHERM_ZONDER_ALIAS = {
+  id: "sch3", collectionId: "c2",
+  key: "SANDMANPC|\\\\?\\DISPLAY#AOC2702#5&24a0a36a&0&UID4352#{guid}|0",
+  device: "SANDMANPC",
+  monitor: "\\\\?\\DISPLAY#AOC2702#5&24a0a36a&0&UID4352#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}",
+  index: 0, width: 3840, height: 2160, laatst_gezien: nu, playlist: "", huidige_wallpaper: "", bron: "rotatie", gewijzigd: nu,
+  expand: {},
+};
 const HISTORIE = [
   { id: "h1", screen: "sch1", wallpaper: "wp1", bron: "rotatie", toegepast: nu, created: nu, expand: { wallpaper: WP[0] } },
 ];
@@ -74,7 +82,7 @@ w.fetch = async (url, opt = {}) => {
     return { ok: true, status: 200, json: async () => ({ id: "pl-nieuw" }) };
   }
   if (url.startsWith("/api/collections/screens/records")) {
-    return { ok: true, status: 200, json: async () => ({ items: SCHERMEN }) };
+    return { ok: true, status: 200, json: async () => ({ items: [...SCHERMEN, SCHERM_ZONDER_ALIAS] }) };
   }
   if (url.startsWith("/api/collections/playlists/records")) {
     return { ok: true, status: 200, json: async () => ({ items: [] }) };
@@ -98,8 +106,8 @@ const ok = [];
 const check = (naam, waar, extra = "") => ok.push({ naam, waar, extra });
 
 /* ---------- paneel ---------- */
-check("twee schermen in het paneel", q(".scherm").length === 2, String(q(".scherm").length));
-check("statusregel met online-aantal", $("#schermen-status").textContent.includes("2 scherm(en) · 1 online"),
+check("drie schermen in het paneel", q(".scherm").length === 3, String(q(".scherm").length));
+check("statusregel met online-aantal", $("#schermen-status").textContent.includes("3 scherm(en) · 2 online"),
   $("#schermen-status").textContent);
 check("scherm 1 toont de huidige afbeelding", kaart("sch1").textContent.includes("Mooi beeld"));
 check("scherm 1 staat op rotatie", kaart("sch1").textContent.includes("rotatie"));
@@ -181,9 +189,14 @@ check("vaste selectie wordt in de playlist gezet", pl() && Array.isArray(pl().bo
 /* ---------- alias van een scherm ---------- */
 check("paneel toont de alias i.p.v. het apparaatpad", kaart("sch1").querySelector(".scherm-kop b").textContent === "Bureau links",
   kaart("sch1").querySelector(".scherm-kop b").textContent);
-check("zonder alias valt de kaart terug op apparaat + monitor",
-  !!kaart("sch1").querySelector('[data-veld="alias"]'),
-  "aliasveld aanwezig");
+check("aliasveld aanwezig op de kaart", !!kaart("sch1").querySelector('[data-veld="alias"]'));
+check("zonder alias wordt het COM-pad leesbaar gemaakt met UID",
+  kaart("sch3").querySelector(".scherm-kop b").textContent === "SANDMANPC AOC2702 UID4352",
+  kaart("sch3").querySelector(".scherm-kop b").textContent);
+check("ondertitel toont de korte monitornaam i.p.v. het COM-pad",
+  kaart("sch3").querySelector(".scherm-kop .sub").textContent.includes("AOC2702 UID4352") &&
+    !kaart("sch3").querySelector(".scherm-kop .sub").textContent.includes("DISPLAY#"),
+  kaart("sch3").querySelector(".scherm-kop .sub").textContent);
 
 patches.length = 0;
 kaart("sch1").querySelector('[data-veld="alias"]').value = "Bureau";
