@@ -239,6 +239,111 @@ function clearRatioBtn() {
   return b;
 }
 
+/* ---------- taghulp: bestaande tags voorstellen tijdens het typen ---------- */
+
+let tagHulpInput = null;
+let tagHulpItems = [];
+let tagHulpIdx = -1;
+
+// alleTags: unieke tags uit de bibliotheek (weergave-vorm van de eerste treffer)
+function alleTags() {
+  const gezien = new Map();
+  for (const r of state.items) {
+    for (const t of tagList(r.tags)) {
+      if (!gezien.has(t.toLowerCase())) gezien.set(t.toLowerCase(), t);
+    }
+  }
+  return [...gezien.values()].sort((a, b) => a.localeCompare(b));
+}
+
+// huidigToken: het stuk na de laatste komma — dat is wat je aan het typen bent
+function huidigToken(waarde) {
+  const i = waarde.lastIndexOf(",");
+  return i === -1 ? waarde : waarde.slice(i + 1);
+}
+
+function verbergTagHulp() {
+  const box = $("#taghulp");
+  if (box) box.classList.add("hidden");
+  tagHulpInput = null;
+}
+
+function toonTagHulp(input) {
+  const waarde = input.value;
+  const token = huidigToken(waarde).trim().toLowerCase();
+  const alGekozen = new Set(tagList(waarde).map((t) => t.toLowerCase()));
+  tagHulpInput = input;
+  tagHulpItems = alleTags()
+    .filter((t) => {
+      const l = t.toLowerCase();
+      if (alGekozen.has(l)) return false; // staat al in het veld
+      return token === "" ? true : l.includes(token);
+    })
+    .slice(0, 8);
+  tagHulpIdx = -1;
+
+  const box = $("#taghulp");
+  if (!tagHulpItems.length) {
+    box.classList.add("hidden");
+    return;
+  }
+  const r = input.getBoundingClientRect();
+  box.style.left = r.left + window.scrollX + "px";
+  box.style.top = r.bottom + window.scrollY + 2 + "px";
+  box.style.minWidth = r.width + "px";
+  box.innerHTML = "";
+  tagHulpItems.forEach((t, i) => {
+    const d = document.createElement("div");
+    d.textContent = t;
+    d.onmousedown = (e) => {
+      e.preventDefault(); // blur voorkomen, anders sluit de lijst te vroeg
+      kiesTagHulp(i);
+    };
+    box.appendChild(d);
+  });
+  box.classList.remove("hidden");
+}
+
+// kiesTagHulp vult de gekozen tag in en zet er een komma achter, zodat je
+// meteen door kunt typen voor de volgende tag.
+function kiesTagHulp(i) {
+  const input = tagHulpInput;
+  if (!input || i < 0 || i >= tagHulpItems.length) return;
+  const waarde = input.value;
+  const cut = waarde.lastIndexOf(",");
+  const voor = cut === -1 ? "" : waarde.slice(0, cut + 1) + " ";
+  input.value = voor + tagHulpItems[i] + ", ";
+  input.focus();
+  toonTagHulp(input);
+}
+
+// koppelTagHulp hangt het gedrag aan een (ook later aangemaakt) tagveld.
+function koppelTagHulp(input) {
+  if (!input || input.dataset.taghulp === "1") return;
+  input.dataset.taghulp = "1";
+  input.setAttribute("autocomplete", "off");
+  input.addEventListener("input", () => toonTagHulp(input));
+  input.addEventListener("focus", () => toonTagHulp(input));
+  input.addEventListener("blur", () => setTimeout(verbergTagHulp, 150));
+  input.addEventListener("keydown", (e) => {
+    const box = $("#taghulp");
+    if (!box || tagHulpInput !== input || box.classList.contains("hidden")) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      tagHulpIdx += e.key === "ArrowDown" ? 1 : -1;
+      if (tagHulpIdx < 0) tagHulpIdx = tagHulpItems.length - 1;
+      if (tagHulpIdx >= tagHulpItems.length) tagHulpIdx = 0;
+      [...box.children].forEach((c, i) => c.classList.toggle("on", i === tagHulpIdx));
+    } else if ((e.key === "Enter" || e.key === "Tab") && tagHulpIdx >= 0) {
+      e.preventDefault();
+      kiesTagHulp(tagHulpIdx);
+    } else if (e.key === "Escape") {
+      e.stopPropagation();
+      verbergTagHulp();
+    }
+  });
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -387,16 +492,47 @@ function iconBtn(label, title, fn, extra = "") {
 
 /* ---------- acties ---------- */
 
-async function editTags(rec, alsoTitle = false) {
-  const current = tagList(rec.tags).join(", ");
-  const tags = prompt("Tags (kommagescheiden):", current);
-  if (tags === null) return;
-  const body = { tags: tagList(tags).join(",") };
-  if (alsoTitle) {
-    const t = prompt("Titel:", rec.title || "");
-    if (t !== null && t.trim()) body.title = t.trim();
-  }
-  await patch(rec.id, body);
+// editTags opent een eigen venster: zo werkt het tagveld met de taghulp
+// (een native prompt kan geen voorstellen tonen).
+function editTags(rec, alsoTitle = false) {
+  const wrap = document.createElement("div");
+  wrap.className = "drop";
+  wrap.style.cssText = "flex-direction:column;gap:14px;padding:24px;overflow:auto;background:rgba(11,13,18,.94)";
+  wrap.innerHTML = `
+    <div style="width:min(560px,100%)">
+      <h2 style="margin-bottom:12px;font-size:18px">${alsoTitle ? "Titel en tags aanpassen" : "Tags aanpassen"}</h2>
+      ${alsoTitle
+        ? `<label style="display:block;font-size:13px;color:var(--dim);margin-bottom:4px">Titel</label>
+           <input id="etTitle" class="input" style="width:100%;margin-bottom:12px" value="${escapeHtml(rec.title || "")}">`
+        : ""}
+      <label style="display:block;font-size:13px;color:var(--dim);margin-bottom:4px">Tags (kommagescheiden — typ voor voorstellen)</label>
+      <input id="etTags" class="input" style="width:100%" value="${escapeHtml(tagList(rec.tags).join(", "))}">
+      <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+        <button id="etCancel" class="btn">Annuleren</button>
+        <button id="etSave" class="btn primary">Opslaan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  const veld = wrap.querySelector("#etTags");
+  koppelTagHulp(veld);
+  veld.focus();
+  veld.setSelectionRange(veld.value.length, veld.value.length);
+
+  wrap.querySelector("#etCancel").onclick = () => {
+    verbergTagHulp();
+    wrap.remove();
+  };
+  wrap.querySelector("#etSave").onclick = async () => {
+    const body = { tags: tagList(veld.value).join(",") };
+    if (alsoTitle) {
+      const t = wrap.querySelector("#etTitle").value.trim();
+      if (t) body.title = t;
+    }
+    verbergTagHulp();
+    wrap.remove();
+    await patch(rec.id, body);
+  };
 }
 
 async function patch(id, body) {
@@ -474,6 +610,7 @@ function openUpload(files) {
       </div>
     </div>`;
 
+  koppelTagHulp(wrap.querySelector("#upTags"));
   const list = wrap.querySelector("#upList");
   const rows = [];
   for (const f of files) {
@@ -514,6 +651,8 @@ function openUpload(files) {
 }
 
 /* ---------- events ---------- */
+
+koppelTagHulp($("#bulktag"));
 
 $("#pick").onclick = () => $("#file").click();
 $("#file").onchange = (e) => {
@@ -590,6 +729,7 @@ window.addEventListener("dragenter", (e) => {
   if (++dragDepth === 1) $("#drop").classList.remove("hidden");
 });
 window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("scroll", verbergTagHulp, true);
 window.addEventListener("dragleave", () => {
   if (--dragDepth <= 0) { dragDepth = 0; $("#drop").classList.add("hidden"); }
 });
@@ -604,7 +744,15 @@ window.addEventListener("drop", (e) => {
 
 /* Escape zet de selectiemodus uit */
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && state.selectMode) {
+  if (e.key !== "Escape") return;
+  // een open venster (tags aanpassen, uploaden) sluit als eerste
+  const vensters = [...document.querySelectorAll(".drop")].filter((el) => el.id !== "drop");
+  if (vensters.length) {
+    verbergTagHulp();
+    vensters[vensters.length - 1].remove();
+    return;
+  }
+  if (state.selectMode) {
     state.selectMode = false;
     state.selected.clear();
     render();

@@ -196,8 +196,8 @@ func TestZonderGebruikt(t *testing.T) {
 		t.Fatalf("al gebruikte beelden moeten wegvallen: %v", ids(got))
 	}
 	alles := map[string]bool{"a": true, "b": true, "c": true}
-	if got := zonderGebruikt(kand, alles); len(got) != 3 {
-		t.Fatalf("als alles gebruikt is mag herhalen: %v", ids(got))
+	if got := zonderGebruikt(kand, alles); len(got) != 0 {
+		t.Fatalf("alles al gebruikt = niets over, zodat de monitor wordt overgeslagen: %v", ids(got))
 	}
 }
 

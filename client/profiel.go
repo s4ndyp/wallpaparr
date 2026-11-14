@@ -149,21 +149,18 @@ func profielOmschrijving(p MonitorProfiel) string {
 	return tags + " · " + ratios
 }
 
-// zonderGebruikt laat beelden weg die in deze ronde al op een ander scherm staan,
-// zodat identieke monitoren niet allemaal dezelfde afbeelding krijgen. Is alles al
-// gebruikt, dan mag herhalen (liever hetzelfde dan niets).
+// zonderGebruikt laat beelden weg die in deze ronde al op een ander scherm staan.
+// Geen terugval: één wallpaper mag maar op één monitor komen — is er niets unieks
+// meer over, dan wordt die monitor overgeslagen in plaats van het beeld te herhalen.
 func zonderGebruikt(kand []Record, gebruikt map[string]bool) []Record {
 	if len(gebruikt) == 0 {
 		return kand
 	}
-	var uit []Record
+	uit := make([]Record, 0, len(kand))
 	for _, r := range kand {
 		if !gebruikt[r.ID] {
 			uit = append(uit, r)
 		}
-	}
-	if len(uit) == 0 {
-		return kand
 	}
 	return uit
 }
@@ -208,6 +205,12 @@ func applyRound(cfg Config, random bool, laatste map[string]string) ([]resultaat
 		// elk scherm een andere afbeelding kunnen krijgen
 		sleutel := monitorLabel(m, i)
 		kand = zonderGebruikt(kand, gebruikt)
+		if len(kand) == 0 {
+			meldingen = append(meldingen, fmt.Sprintf(
+				"%s: alle %d kandidaten staan al op een ander scherm — monitor overgeslagen",
+				sleutel, len(kandidatenVoor(recs, cfg.profielVoor(m), cfg.Tag, !cfg.PerMonitor))))
+			continue
+		}
 		kies := nextPick(kand, laatste[sleutel], 1, random)[0]
 		gebruikt[kies.ID] = true
 		if laatste != nil {

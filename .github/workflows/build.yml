@@ -116,6 +116,7 @@ jobs:
         run: |
           node tests/ui-test.mjs
           node tests/ratio-test.mjs
+          node tests/taghelp-test.mjs
 
   client-test:
     name: client-test
