@@ -22,11 +22,17 @@ jobs:
         run: |
           BASE="ghcr.io/${{ github.repository }}"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            printf 'tags=%s:%s\n%s:latest\n' "$BASE" "${GITHUB_REF_NAME}" "$BASE" >> "$GITHUB_OUTPUT"
+            # twee tags: de versie én latest (multiline-output vereist een delimiter)
+            {
+              echo "tags<<EOF"
+              echo "$BASE:${GITHUB_REF_NAME}"
+              echo "$BASE:latest"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           elif [ "${GITHUB_REF_NAME}" = "main" ]; then
-            printf 'tags=%s:latest\n' "$BASE" >> "$GITHUB_OUTPUT"
+            echo "tags=$BASE:latest" >> "$GITHUB_OUTPUT"
           else
-            printf 'tags=%s:%s\n' "$BASE" "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "tags=$BASE:${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
           cat "$GITHUB_OUTPUT"
 
