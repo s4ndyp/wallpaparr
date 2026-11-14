@@ -790,12 +790,13 @@ func poller() {
 
 		// 1-2. de eigen schermen bij de server aanmelden
 		nu := time.Now().Format("2006-01-02 15:04:05.000Z")
-		for _, m := range mons {
+		for i, m := range mons {
+			n := idxWithin(mons, i)
 			s := Screen{
-				Key:          device + "|" + m + "|" + strconv.Itoa(countWithin(mons, m)),
+				Key:          device + "|" + m + "|" + strconv.Itoa(n),
 				Device:       device,
 				Monitor:      m,
-				Index:        countWithin(mons, m),
+				Index:        n,
 				LaatstGewien: nu,
 			}
 			if err := screenUpsert(cfg.Server, s); err != nil {

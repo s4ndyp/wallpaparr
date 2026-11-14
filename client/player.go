@@ -51,8 +51,8 @@ func runPlayer(server string, monitoren []string, poll time.Duration, statePath 
 		}
 
 		// per monitor: zorg dat er een scherm-register is
-		for _, m := range monitoren {
-			n := countWithin(monitoren, m)
+		for i, m := range monitoren {
+			n := idxWithin(monitoren, i)
 			s := Screen{
 				Key:          device + "|" + m + "|" + strconv.Itoa(n),
 				Device:       device,

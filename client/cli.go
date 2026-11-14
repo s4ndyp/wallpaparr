@@ -147,12 +147,12 @@ func cmdSet(args []string) {
 	if err != nil {
 		fail(err)
 	}
-	for _, m := range mons {
+	for i, m := range mons {
 		wpath, err := download(cfg.Server, *kies)
 		if err != nil {
 			fail(err)
 		}
-		if err := setMonitorWallpaper(m, 0, wpath, "fill"); err != nil {
+		if err := setMonitorWallpaper(m, idxWithin(mons, i), wpath, cfg.Position); err != nil {
 			fail(err)
 		}
 		fmt.Printf("Pin: %-5s %s (%dx%d) zodat %s (%s)\n", m, kies.Title, kies.Width, kies.Height, kies.File, m)
@@ -173,6 +173,19 @@ func parseMonitoren(s string) []string {
 		uit = append(uit, stuk)
 	}
 	return uit
+}
+
+// idxWithin geeft de positie van mons[i] tussen de eerdere gelijknamige monitoren
+// (0,1,2 bij drie keer dezelfde naam). countWithin telt álle voorkomens en is dus
+// ongeschikt voor de schermsleutel.
+func idxWithin(mons []string, i int) int {
+	n := 0
+	for j := 0; j < i; j++ {
+		if mons[j] == mons[i] {
+			n++
+		}
+	}
+	return n
 }
 
 // countWithin telt hoeveel keer naam al voorkomt (voor de key-index).
