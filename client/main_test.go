@@ -84,3 +84,112 @@ func TestNextPickMetEenEnkeleWallpaper(t *testing.T) {
 		t.Fatalf("vraagt 2 van 2: moet beide geven ondanks de vorige: %+v", got)
 	}
 }
+
+/* ---------- verhoudinggroepen ---------- */
+
+func recWH(id string, w, h int, tags string) Record {
+	return Record{ID: id, Title: "titel-" + id, Width: w, Height: h, Tags: tags}
+}
+
+func TestRatioBucket(t *testing.T) {
+	gevallen := []struct {
+		w, h int
+		wil  string
+	}{
+		{2912, 1632, "16:9"}, // de AI-wallpapers van de gebruiker
+		{1920, 1080, "16:9"},
+		{3840, 2160, "16:9"},
+		{3360, 1440, "21:9"},
+		{3440, 1440, "21:9"},
+		{2400, 1080, "21:9"},
+		{3840, 1200, "27:9"}, // 3,2 zit binnen 10% van 3,0
+		{1000, 1000, "1:1"},
+		{2000, 3000, "2:3"},
+		{1080, 1920, "overig"}, // gekanteld hoort er bewust niet bij
+		{2000, 1000, "overig"}, // 2:1 is geen 1:2
+		{1600, 1200, "overig"}, // 4:3
+		{0, 0, "overig"},
+	}
+	for _, g := range gevallen {
+		r := Record{Width: g.w, Height: g.h}
+		if got := ratioBucket(r); got != g.wil {
+			t.Errorf("ratioBucket(%dx%d) = %q, wil %q", g.w, g.h, got, g.wil)
+		}
+	}
+}
+
+/* ---------- per-monitor profielen ---------- */
+
+func TestKandidatenVoorTagsEnVerhouding(t *testing.T) {
+	recs := []Record{
+		recWH("a", 3360, 1440, "natuur,nacht"),
+		recWH("b", 3360, 1440, "abstract"),
+		recWH("c", 2912, 1632, "natuur"),
+		recWH("d", 1000, 1000, "natuur"),
+	}
+	got := kandidatenVoor(recs, MonitorProfiel{Tags: []string{"natuur"}, Ratios: []string{"21:9"}}, "", true)
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("profiel natuur+21:9 gaf %v", ids(got))
+	}
+	got = kandidatenVoor(recs, MonitorProfiel{Ratios: []string{"16:9"}}, "", true)
+	if len(got) != 1 || got[0].ID != "c" {
+		t.Fatalf("profiel 16:9 gaf %v", ids(got))
+	}
+	got = kandidatenVoor(recs, MonitorProfiel{}, "", true)
+	if len(got) != 4 {
+		t.Fatalf("leeg profiel gaf %v", ids(got))
+	}
+	got = kandidatenVoor(recs, MonitorProfiel{Tags: []string{"natuur", "nacht"}}, "", true)
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("tags moeten allemaal aanwezig zijn (AND): %v", ids(got))
+	}
+	got = kandidatenVoor(recs, MonitorProfiel{}, "abstract", true)
+	if len(got) != 1 || got[0].ID != "b" {
+		t.Fatalf("globale tag gaf %v", ids(got))
+	}
+	got = kandidatenVoor(recs, MonitorProfiel{}, "abstract", false)
+	if len(got) != 4 {
+		t.Fatalf("bij per-monitor mag de globale tag niet meewegen: %v", ids(got))
+	}
+	got = kandidatenVoor(recs, MonitorProfiel{Tags: []string{"bestaatniet"}}, "", true)
+	if len(got) != 0 {
+		t.Fatalf("verwachtte geen kandidaten, kreeg %v", ids(got))
+	}
+}
+
+func TestProfielVoor(t *testing.T) {
+	cfg := Config{Monitors: []MonitorProfiel{
+		{Monitor: "AOC2702", Tags: []string{"natuur"}},
+		{Monitor: `\\?\DISPLAY#DELD128#5&1234`, Ratios: []string{"27:9"}},
+	}}
+	if p := cfg.profielVoor("AOC2702"); len(p.Tags) != 1 {
+		t.Fatalf("exacte match mislukt: %+v", p)
+	}
+	// deelnaam: het COM-pad verandert als je een monitor opnieuw aansluit
+	if p := cfg.profielVoor(`\\?\DISPLAY#AOC2702#9&9999&0&UID4352`); len(p.Tags) != 1 {
+		t.Fatalf("deelnaam-match mislukt: %+v", p)
+	}
+	if p := cfg.profielVoor("Onbekend"); len(p.Tags) != 0 || len(p.Ratios) != 0 {
+		t.Fatalf("onbekende monitor hoort een leeg profiel te geven: %+v", p)
+	}
+}
+
+func TestMetProfielVervangt(t *testing.T) {
+	cfg := Config{Monitors: []MonitorProfiel{{Monitor: "A", Tags: []string{"x"}}}}
+	cfg = cfg.metProfiel(MonitorProfiel{Monitor: "A", Tags: []string{"y"}})
+	if len(cfg.Monitors) != 1 || cfg.Monitors[0].Tags[0] != "y" {
+		t.Fatalf("vervangen mislukt: %+v", cfg.Monitors)
+	}
+	cfg = cfg.metProfiel(MonitorProfiel{Monitor: "B", Ratios: []string{"21:9"}})
+	if len(cfg.Monitors) != 2 {
+		t.Fatalf("toevoegen mislukt: %+v", cfg.Monitors)
+	}
+}
+
+func ids(recs []Record) []string {
+	uit := make([]string, 0, len(recs))
+	for _, r := range recs {
+		uit = append(uit, r.ID)
+	}
+	return uit
+}

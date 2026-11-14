@@ -77,11 +77,54 @@ De tray-variant heeft geen console, dus fouten gaan naar
   Verbinding testen, Per monitor aan/uit, Interval (15/30/60/180/360/1440 minuten of uit)
   en **Afsluiten**.
 - Twee keer starten levert geen tweede icoon op (single-instance).
-- Wisselen herhaalt nooit twee keer achter elkaar hetzelfde beeld.
+- Wisselen herhaalt nooit twee keer achter elkaar hetzelfde beeld (per monitor bijgehouden).
+- Als de taakbalk (Explorer) opnieuw opstart, meldt de client het icoon automatisch opnieuw aan.
+- **Zie je geen icoon?** Windows 11 zet nieuwe tray-iconen standaard in de verborgen-iconenoverloop:
+  klik op het pijltje **^** naast de klok en sleep het Wallpaparr-icoon naar de taakbalk (of zet het
+  aan via Instellingen → Personalisatie → Taakbalk → Systeembalkpictogrammen). Bij de eerste start
+  laat de client ook eenmalig een melding zien.
 - De GUI gebruikt dezelfde `config.json` als de CLI-opdrachten.
 
 Op **Unix blijft het de CLI**: een tray-icoon vraagt daar GTK/AppIndicator (extra
 afhankelijkheden en CGO), en dat weegt niet op tegen `wallpaparr set/rotate`.
+
+### Per-monitor profielen (tags + verhouding)
+
+Per monitor stel je in welke wallpapers meegenomen mogen worden:
+
+| Veld | Betekenis |
+|---|---|
+| **Tags** | kommagescheiden; meerdere tags = allemaal moeten ze op de afbeelding staan. Leeg = **alle tags** |
+| **Verhoudingen** | 1:1, 1:2, 2:3, 16:9, 21:9, 27:9 en *overig*. Niets aangevinkt = **alle verhoudingen** |
+
+Een wallpaper die niet voldoet wordt voor díé monitor overgeslagen — handig voor een ultrawide
+die alleen 21:9 of 27:9 wil terwijl de rest van je schermen alles mag pakken. Voorbeeld uit de
+praktijk: op de live bibliotheek van 345 wallpapers verdeelt de client ze als 231× 21:9,
+75× 16:9 en 39× 27:9 (3808×1280 valt binnen de tolerantie in de 27:9-groep).
+
+Instellen kan in de GUI (Windows): kies de monitor in de keuzelijst, vul tags in, vink de
+verhoudingen aan en klik **Opslaan en toepassen**. Met **Profielen controleren** (knop of
+tray-menu-item) zie je per monitor hoeveel wallpapers er met die instellingen in aanmerking
+komen. In de JSON-config staat hetzelfde onder `"monitors"`:
+
+```json
+{
+  "server": "https://wallpaparr.xdio.nl",
+  "per_monitor": true,
+  "monitors": [
+    { "monitor": "AOC2702", "tags": ["natuur"], "ratios": ["16:9", "21:9"] },
+    { "monitor": "DELD128", "ratios": ["27:9"] }
+  ]
+}
+```
+
+De monitornaam wordt eerst exact gematcht en anders op deelnaam — het COM-pad verandert
+namelijk als je een monitor opnieuw aansluit. Op de CLI geeft `wallpaparr profiles` dezelfde
+samenvatting als de knop in de GUI, en `wallpaparr list` toont per wallpaper in welke
+verhoudinggroep hij valt.
+
+De verhoudinggroepen zijn gelijk aan die in de web-UI: 10% tolerantie en **niet symmetrisch**,
+dus een gekantelde 9:16-tegel hoort bewust niet bij 16:9.
 
 ### Multi-monitor
 

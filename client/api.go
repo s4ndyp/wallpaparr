@@ -32,6 +32,17 @@ type listResponse struct {
 	Items      []Record `json:"items"`
 }
 
+// tagList splitst een kommagescheiden tag-string in losse tags.
+func tagList(s string) []string {
+	var uit []string
+	for _, t := range strings.Split(s, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			uit = append(uit, t)
+		}
+	}
+	return uit
+}
+
 // Config staat in het gebruikersconfiguratiemapje.
 type Config struct {
 	Server      string `json:"server"`
@@ -41,6 +52,8 @@ type Config struct {
 	StartHidden bool   `json:"start_hidden"`
 	Every       string `json:"every"`
 	Position    string `json:"position"`
+	// Per-monitor profielen: tags en beeldverhoudingen per monitor. Leeg = alles.
+	Monitors []MonitorProfiel `json:"monitors,omitempty"`
 }
 
 // Save schrijft de configuratie weg (de GUI gebruikt dit); vult defaults in.

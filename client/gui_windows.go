@@ -40,34 +40,35 @@ var (
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
 
-	pRegisterClassExW      = user32.NewProc("RegisterClassExW")
-	pCreateWindowExW       = user32.NewProc("CreateWindowExW")
-	pDefWindowProcW        = user32.NewProc("DefWindowProcW")
-	pGetMessageW           = user32.NewProc("GetMessageW")
-	pTranslateMessage      = user32.NewProc("TranslateMessage")
-	pDispatchMessageW      = user32.NewProc("DispatchMessageW")
-	pPostQuitMessage       = user32.NewProc("PostQuitMessage")
-	pDestroyWindow         = user32.NewProc("DestroyWindow")
-	pShowWindow            = user32.NewProc("ShowWindow")
-	pIsWindowVisible       = user32.NewProc("IsWindowVisible")
-	pSetForegroundWindow   = user32.NewProc("SetForegroundWindow")
-	pPostMessageW          = user32.NewProc("PostMessageW")
-	pGetCursorPos          = user32.NewProc("GetCursorPos")
-	pCreatePopupMenu       = user32.NewProc("CreatePopupMenu")
-	pAppendMenuW           = user32.NewProc("AppendMenuW")
-	pTrackPopupMenu        = user32.NewProc("TrackPopupMenu")
-	pDestroyMenu           = user32.NewProc("DestroyMenu")
-	pShellNotifyIconW      = shell32.NewProc("Shell_NotifyIconW") // shell32, niet user32!
-	pLoadIconW             = user32.NewProc("LoadIconW")
-	pCreateIconFromRes     = user32.NewProc("CreateIconFromResourceEx")
-	pGetWindowTextW        = user32.NewProc("GetWindowTextW")
-	pSetWindowTextW        = user32.NewProc("SetWindowTextW")
-	pSendMessageW          = user32.NewProc("SendMessageW")
-	pGetModuleHandleW      = kernel32.NewProc("GetModuleHandleW") // kernel32, niet user32!
-	pMessageBoxW           = user32.NewProc("MessageBoxW")
-	pCreateFontW           = gdi32.NewProc("CreateFontW")
-	pCreateMutexW          = kernel32.NewProc("CreateMutexW")
-	pDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
+	pRegisterClassExW       = user32.NewProc("RegisterClassExW")
+	pCreateWindowExW        = user32.NewProc("CreateWindowExW")
+	pDefWindowProcW         = user32.NewProc("DefWindowProcW")
+	pGetMessageW            = user32.NewProc("GetMessageW")
+	pTranslateMessage       = user32.NewProc("TranslateMessage")
+	pDispatchMessageW       = user32.NewProc("DispatchMessageW")
+	pPostQuitMessage        = user32.NewProc("PostQuitMessage")
+	pDestroyWindow          = user32.NewProc("DestroyWindow")
+	pShowWindow             = user32.NewProc("ShowWindow")
+	pIsWindowVisible        = user32.NewProc("IsWindowVisible")
+	pSetForegroundWindow    = user32.NewProc("SetForegroundWindow")
+	pPostMessageW           = user32.NewProc("PostMessageW")
+	pGetCursorPos           = user32.NewProc("GetCursorPos")
+	pCreatePopupMenu        = user32.NewProc("CreatePopupMenu")
+	pAppendMenuW            = user32.NewProc("AppendMenuW")
+	pTrackPopupMenu         = user32.NewProc("TrackPopupMenu")
+	pDestroyMenu            = user32.NewProc("DestroyMenu")
+	pShellNotifyIconW       = shell32.NewProc("Shell_NotifyIconW") // shell32, niet user32!
+	pRegisterWindowMessageW = user32.NewProc("RegisterWindowMessageW")
+	pLoadIconW              = user32.NewProc("LoadIconW")
+	pCreateIconFromRes      = user32.NewProc("CreateIconFromResourceEx")
+	pGetWindowTextW         = user32.NewProc("GetWindowTextW")
+	pSetWindowTextW         = user32.NewProc("SetWindowTextW")
+	pSendMessageW           = user32.NewProc("SendMessageW")
+	pGetModuleHandleW       = kernel32.NewProc("GetModuleHandleW") // kernel32, niet user32!
+	pMessageBoxW            = user32.NewProc("MessageBoxW")
+	pCreateFontW            = gdi32.NewProc("CreateFontW")
+	pCreateMutexW           = kernel32.NewProc("CreateMutexW")
+	pDwmSetWindowAttribute  = dwmapi.NewProc("DwmSetWindowAttribute")
 )
 
 const (
@@ -121,6 +122,7 @@ const (
 	nimAdd     = 0
 	nimDelete  = 2
 	nifMessage = 0x01
+	nifInfo    = 0x10
 	nifIcon    = 0x02
 	nifTip     = 0x04
 
@@ -132,9 +134,10 @@ var fontHoogte = int32(-13) // negatief = tekenhoogte i.p.v. celhoogte
 
 // eigen vensterberichten
 const (
-	trayMsg   = wmApp + 1 // callback van het tray-icoon
-	msgStatus = wmApp + 2 // status bijwerken
-	msgShow   = wmApp + 3 // venster naar voren halen
+	trayMsg     = wmApp + 1 // callback van het tray-icoon
+	msgStatus   = wmApp + 2 // status bijwerken
+	msgShow     = wmApp + 3 // venster naar voren halen
+	msgMonitors = wmApp + 4 // de monitorlijst is binnen
 )
 
 // control-id's
@@ -150,7 +153,16 @@ const (
 	idSave
 	idApplyNow
 	idTest
+	idProfielMonitor
+	idProfielTags
+	idProfielCheck
 )
+
+// idRatioBase + 0..6 = de verhouding-checkboxen (1:1 t/m 27:9 + overig)
+const idRatioBase = 1100
+
+// ratioNamen volgt de web-UI; "overig" vangt alles buiten de standaardgroepen.
+var ratioNamen = []string{"1:1", "1:2", "2:3", "16:9", "21:9", "27:9", "overig"}
 
 // menu-id's
 const (
@@ -159,6 +171,7 @@ const (
 	idMNext
 	idMTest
 	idMMonitor
+	idMProfiles
 	idMQuit
 )
 
@@ -285,20 +298,110 @@ type guiState struct {
 	status string
 	cmds   chan guiCmd
 
-	editServer  uintptr
-	editTag     uintptr
-	editMinutes uintptr
-	chkMonitor  uintptr
-	chkRandom   uintptr
-	chkHidden   uintptr
-	cmbPosition uintptr
-	lblStatus   uintptr
+	monitors       []string // monitornamen (door de scheduler gevuld; COM hoort daar)
+	gekozenMonitor string   // welk profiel staat nu in de controls ("" = standaard)
+
+	editServer      uintptr
+	editTag         uintptr
+	editMinutes     uintptr
+	chkMonitor      uintptr
+	chkRandom       uintptr
+	chkHidden       uintptr
+	cmbPosition     uintptr
+	lblStatus       uintptr
+	cmbProfiel      uintptr
+	editProfielTags uintptr
+	chkRatios       [7]uintptr
 }
 
 var g = &guiState{cmds: make(chan guiCmd, 8)}
 
 func (s *guiState) setCfg(c Config) { s.mu.Lock(); s.cfg = c; s.mu.Unlock() }
 func (s *guiState) getCfg() Config  { s.mu.Lock(); defer s.mu.Unlock(); return s.cfg }
+
+func (s *guiState) setMonitors(m []string) { s.mu.Lock(); s.monitors = m; s.mu.Unlock() }
+func (s *guiState) getMonitors() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.monitors...)
+}
+
+/* ---------- profiel per monitor (UI-thread) ---------- */
+
+// leesProfielVelden haalt het profiel van de NU gekozen monitor uit de controls.
+func leesProfielVelden() MonitorProfiel {
+	p := MonitorProfiel{Monitor: g.gekozenMonitor, Tags: tagList(getText(g.editProfielTags))}
+	for i, naam := range ratioNamen {
+		if g.chkRatios[i] != 0 && call(pSendMessageW, g.chkRatios[i], bmGetCheck, 0, 0) == bstChecked {
+			p.Ratios = append(p.Ratios, naam)
+		}
+	}
+	return p
+}
+
+// zetProfielVelden toont het profiel van een monitor in de controls.
+func zetProfielVelden(p MonitorProfiel) {
+	if g.editProfielTags == 0 {
+		return
+	}
+	setText(g.editProfielTags, strings.Join(p.Tags, ","))
+	aan := map[string]bool{}
+	for _, r := range p.Ratios {
+		aan[r] = true
+	}
+	for i, naam := range ratioNamen {
+		v := uintptr(0)
+		if aan[naam] {
+			v = bstChecked
+		}
+		call(pSendMessageW, g.chkRatios[i], bmSetCheck, v, 0)
+	}
+}
+
+// bewaarProfiel slaat de invoer van de huidige monitor op in de config.
+func bewaarProfiel() {
+	if g.editProfielTags == 0 {
+		return
+	}
+	p := leesProfielVelden()
+	if p.Monitor == "" && len(p.Tags) == 0 && len(p.Ratios) == 0 {
+		return // niets ingevuld voor de standaard: niets te bewaren
+	}
+	g.setCfg(g.getCfg().metProfiel(p))
+}
+
+// wisselProfiel bewaart de huidige invoer en laadt het profiel van de nieuwe keuze.
+func wisselProfiel(idx int) {
+	bewaarProfiel()
+	mons := g.getMonitors()
+	if idx >= 1 && idx-1 < len(mons) {
+		g.gekozenMonitor = mons[idx-1]
+	} else {
+		g.gekozenMonitor = ""
+	}
+	zetProfielVelden(g.getCfg().profielVoor(g.gekozenMonitor))
+}
+
+// vulProfielKeuzes zet de monitorlijst in de keuzelijst (0 = standaard).
+func vulProfielKeuzes() {
+	if g.cmbProfiel == 0 {
+		return
+	}
+	call(pSendMessageW, g.cmbProfiel, 0x014B /*CB_RESETCONTENT*/, 0, 0)
+	call(pSendMessageW, g.cmbProfiel, cbAddString, 0, uintptr(unsafe.Pointer(u16("alle monitoren (standaard)"))))
+	mons := g.getMonitors()
+	for i, m := range mons {
+		call(pSendMessageW, g.cmbProfiel, cbAddString, 0, uintptr(unsafe.Pointer(u16(monitorLabel(m, i)))))
+	}
+	idx := 0
+	for i, m := range mons {
+		if m == g.gekozenMonitor {
+			idx = i + 1
+		}
+	}
+	call(pSendMessageW, g.cmbProfiel, cbSetCurSel, uintptr(idx), 0)
+	zetProfielVelden(g.getCfg().profielVoor(g.gekozenMonitor))
+}
 func (s *guiState) setStatus(m string) {
 	s.mu.Lock()
 	s.status = m
@@ -312,6 +415,10 @@ func (s *guiState) setStatus(m string) {
 /* ---------- tray ---------- */
 
 var trayHicon uintptr
+
+// taskbarCreatedMsg: door Windows geregistreerd bericht dat de taakbalk opnieuw is
+// gestart. Zonder heraanmelding is het icoon daarna definitief weg.
+var taskbarCreatedMsg uint32
 
 func loadIcon() uintptr {
 	if len(icoData) > 22 {
@@ -359,6 +466,18 @@ func trayTip(status string) {
 	})
 }
 
+// trayBalloon toont één melding; dat helpt om het icoon te vinden, want Windows 11
+// zet nieuwe tray-iconen standaard in de verborgen-iconenoverloop.
+func trayBalloon(titel, tekst string) {
+	trayData(func(nid *notifyIconData) {
+		nid.UFlags = nifInfo
+		putStr(nid.SzInfoTitle[:], titel)
+		putStr(nid.SzInfo[:], tekst)
+		nid.DwInfoFlags = 0x01 // NIIF_INFO
+		call(pShellNotifyIconW, 1 /*NIM_MODIFY*/, uintptr(unsafe.Pointer(nid)))
+	})
+}
+
 func trayDel() {
 	trayData(func(nid *notifyIconData) {
 		nid.UFlags = 0
@@ -379,6 +498,7 @@ func showTrayMenu() {
 	appendMenu(menu, mfString, idMNow, "Nu wisselen")
 	appendMenu(menu, mfString, idMNext, "Volgende wallpaper")
 	appendMenu(menu, mfString, idMTest, "Verbinding testen")
+	appendMenu(menu, mfString, idMProfiles, "Profielen controleren")
 	appendMenu(menu, mfSeparator, 0, "")
 
 	monFlag := uintptr(mfString)
@@ -424,6 +544,10 @@ func showTrayMenu() {
 		g.cmds <- guiCmd{kind: "next"}
 	case idMTest:
 		g.cmds <- guiCmd{kind: "test"}
+	case idMProfiles:
+		showVenster()
+		g.cmds <- guiCmd{kind: "monitors"}
+		g.cmds <- guiCmd{kind: "profiles"}
 	case idMMonitor:
 		cfg.PerMonitor = !cfg.PerMonitor
 		cfg.Save()
@@ -546,18 +670,38 @@ func maakControls() {
 		call(pSendMessageW, g.chkRandom, bmSetCheck, bstChecked, 0)
 	}
 
-	btnSave := makeControl("BUTTON", "Opslaan en toepassen", bsPushButton|wsTabStop, 16, 210, 155, 28, idSave)
-	btnNow := makeControl("BUTTON", "Nu wisselen", bsPushButton|wsTabStop, 180, 210, 110, 28, idApplyNow)
-	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 299, 210, 161, 28, idTest)
-	for _, b := range []uintptr{btnSave, btnNow, btnTest} {
+	// --- profiel per monitor (geldt als "per monitor" aanstaat) --------------
+	maakLabel("Profiel voor monitor", 16, 218)
+	g.cmbProfiel = makeControl("COMBOBOX", "", cbsDropDownList|wsTabStop|wsVScroll, 196, 215, 260, 200, idProfielMonitor)
+	call(pSendMessageW, g.cmbProfiel, 0x0030, vet, 1)
+	call(pSendMessageW, g.cmbProfiel, cbAddString, 0, uintptr(unsafe.Pointer(u16("alle monitoren (standaard)"))))
+	call(pSendMessageW, g.cmbProfiel, cbSetCurSel, 0, 0)
+
+	maakLabel("Tags (leeg = alle tags)", 16, 250)
+	g.editProfielTags = maakEdit("", 196, 247, 260, idProfielTags, 0)
+
+	maakLabel("Verhoudingen (niets = alle)", 16, 282)
+	for i, naam := range ratioNamen {
+		x := 196 + (i%4)*98
+		y := 279 + (i/4)*24
+		g.chkRatios[i] = makeControl("BUTTON", naam, bsAutoCheckBox|wsTabStop, x, y, 94, 21, idRatioBase+uintptr(i))
+		call(pSendMessageW, g.chkRatios[i], 0x0030, vet, 1)
+	}
+
+	btnSave := makeControl("BUTTON", "Opslaan en toepassen", bsPushButton|wsTabStop, 16, 340, 150, 28, idSave)
+	btnNow := makeControl("BUTTON", "Nu wisselen", bsPushButton|wsTabStop, 176, 340, 105, 28, idApplyNow)
+	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 291, 340, 140, 28, idTest)
+	btnCheck := makeControl("BUTTON", "Profielen controleren", bsPushButton|wsTabStop, 441, 340, 145, 28, idProfielCheck)
+	for _, b := range []uintptr{btnSave, btnNow, btnTest, btnCheck} {
 		call(pSendMessageW, b, 0x0030, vet, 1)
 	}
 
-	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 248, 444, 90, idStatus)
+	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 378, 570, 110, idStatus)
 	call(pSendMessageW, g.lblStatus, 0x0030, vet, 1)
 }
 
 func readForm() Config {
+	bewaarProfiel() // de invoer van de gekozen monitor hoort in de config
 	cfg := g.getCfg()
 	cfg.Server = normalizeServer(getText(g.editServer))
 	cfg.Tag = getText(g.editTag)
@@ -579,8 +723,19 @@ func readForm() Config {
 	return cfg
 }
 
-func onCommand(id uint16) {
+func onCommand(id, code uint16) {
 	switch id {
+	case idProfielMonitor:
+		if code == 1 { // CBN_SELCHANGE: andere monitor gekozen
+			idx := int(call(pSendMessageW, g.cmbProfiel, cbGetCurSel, 0, 0))
+			if idx >= 0 {
+				wisselProfiel(idx)
+			}
+		}
+	case idProfielCheck:
+		showVenster()
+		g.cmds <- guiCmd{kind: "monitors"}
+		g.cmds <- guiCmd{kind: "profiles"}
 	case idSave:
 		cfg := readForm()
 		if err := cfg.Save(); err != nil {
@@ -591,6 +746,7 @@ func onCommand(id uint16) {
 		d, _ := time.ParseDuration(cfg.Every)
 		g.cmds <- guiCmd{kind: "interval", every: d}
 		g.cmds <- guiCmd{kind: "apply"}
+		g.cmds <- guiCmd{kind: "profiles"} // meteen laten zien hoeveel er per monitor passen
 	case idApplyNow:
 		g.cmds <- guiCmd{kind: "apply"}
 	case idTest:
@@ -607,13 +763,22 @@ func updateStatus() {
 }
 
 func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
+	// taakbalk opnieuw opgestart? dan het tray-icoon opnieuw aanmelden
+	if taskbarCreatedMsg != 0 && message == taskbarCreatedMsg {
+		guiLog("taakbalk opnieuw gestart — tray-icoon opnieuw aanmelden")
+		trayAdd("klaar")
+		return 0
+	}
 	switch message {
 	case wmCreate:
 		g.hwnd = hwnd
 		maakControls()
 		return 0
 	case wmCommand:
-		onCommand(uint16(wparam & 0xffff))
+		onCommand(uint16(wparam&0xffff), uint16((wparam>>16)&0xffff))
+		return 0
+	case msgMonitors:
+		vulProfielKeuzes()
 		return 0
 	case msgStatus:
 		updateStatus()
@@ -647,7 +812,7 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 func scheduler() {
 	var ticker *time.Ticker
 	var tick <-chan time.Time
-	var lastID string
+	laatstePerMonitor := map[string]string{}
 
 	stelIntervalIn := func(d time.Duration) {
 		if ticker != nil {
@@ -684,15 +849,36 @@ func scheduler() {
 			return
 		}
 		g.setStatus("bezig…")
-		rec, err := applyChoice(cfg, cfg.Random, lastID)
+		res, meldingen, err := applyRound(cfg, cfg.Random, laatstePerMonitor)
+		for _, m := range meldingen {
+			guiLog("let op: %s", m)
+		}
 		if err != nil {
 			guiLog("wisselen mislukt: %v", err)
 			g.setStatus("fout: " + err.Error())
 			return
 		}
-		lastID = rec.ID
-		guiLog("gezet: %s (%dx%d) id=%s", rec.Title, rec.Width, rec.Height, rec.ID)
-		g.setStatus(fmt.Sprintf("gezet: %s (%dx%d)", rec.Title, rec.Width, rec.Height))
+		var regels []string
+		for _, r := range res {
+			laatstePerMonitor[r.Monitor] = r.Rec.ID
+			guiLog("gezet op %s: %s (%dx%d) id=%s", monitorLabel(r.Monitor, r.Index),
+				r.Rec.Title, r.Rec.Width, r.Rec.Height, r.Rec.ID)
+			regels = append(regels, monitorLabel(r.Monitor, r.Index)+": "+r.Rec.Title)
+		}
+		status := strings.Join(regels, "\r\n")
+		if len(meldingen) > 0 {
+			status += "\r\n" + strings.Join(meldingen, "\r\n")
+		}
+		g.setStatus(status)
+	}
+
+	// monitoren ophalen: COM hoort op deze goroutine, niet op de UI-thread
+	if m, err := listMonitors(); err == nil {
+		g.setMonitors(m)
+		call(pPostMessageW, g.hwnd, msgMonitors, 0, 0)
+		guiLog("monitoren: %d gevonden", len(m))
+	} else {
+		guiLog("monitoren ophalen mislukt: %v", err)
 	}
 
 	// eerste toepassing meteen
@@ -719,6 +905,25 @@ func scheduler() {
 				})
 			case "interval":
 				stelIntervalIn(c.every)
+			case "profiles":
+				veilig("profielen controleren", func() {
+					regels, err := profielSamenvatting(g.getCfg())
+					if err != nil {
+						g.setStatus("profielen controleren mislukt: " + err.Error())
+						return
+					}
+					for _, r := range regels {
+						guiLog("profiel — %s", r)
+					}
+					g.setStatus(strings.Join(regels, "\r\n"))
+				})
+			case "monitors":
+				veilig("monitoren ophalen", func() {
+					if m, err := listMonitors(); err == nil {
+						g.setMonitors(m)
+						call(pPostMessageW, g.hwnd, msgMonitors, 0, 0)
+					}
+				})
 			}
 		case <-tick:
 			veilig("wisselen", doe)
@@ -751,6 +956,10 @@ func runGUI() error {
 		return nil
 	}
 
+	cfgPad, _ := configPath()
+	_, statErr := os.Stat(cfgPad)
+	eersteKeer := statErr != nil // nog geen config = eerste start
+
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -770,6 +979,7 @@ func runGUI() error {
 
 	icon := loadIcon()
 	hInst := call(pGetModuleHandleW, 0)
+	taskbarCreatedMsg = uint32(call(pRegisterWindowMessageW, uintptr(unsafe.Pointer(u16("TaskbarCreated")))))
 	klasse := u16("WallpaparrTrayWindow")
 	wc := wndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
@@ -787,7 +997,7 @@ func runGUI() error {
 	hwnd := call(pCreateWindowExW, 0,
 		uintptr(unsafe.Pointer(klasse)),
 		uintptr(unsafe.Pointer(u16("Wallpaparr — wallpaper-client"))),
-		style, uintptr(cwUseDefault), uintptr(cwUseDefault), 490, 400, 0, 0, hInst, 0)
+		style, uintptr(cwUseDefault), uintptr(cwUseDefault), 620, 570, 0, 0, hInst, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("venster maken mislukt")
 	}
@@ -803,6 +1013,9 @@ func runGUI() error {
 		call(pShowWindow, hwnd, swHide)
 	}
 	trayAdd("klaar")
+	if eersteKeer {
+		trayBalloon("Wallpaparr", "De client draait in de systeembalk. Zie je het icoon niet meteen? Klik op het pijltje ^ naast de klok en sleep het naar de taakbalk.")
+	}
 	go scheduler()
 
 	// berichtlus (moet op deze thread blijven)

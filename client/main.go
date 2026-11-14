@@ -1,7 +1,7 @@
 // Wallpaparr-client: haalt wallpapers op van de centrale Wallpaparr-server
 // (PocketBase) en zet ze als bureaubladachtergrond, met ondersteuning voor
-// multi-monitor setups. Op Windows start zonder argumenten de tray-app met
-// instellingenvenster; op Unix gebruik je de opdrachten hieronder.
+// multi-monitor setups en per-monitor profielen (tags + beeldverhouding).
+// Op Windows start zonder argumenten de tray-app met instellingenvenster.
 package main
 
 import (
@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const version = "0.2.1"
+const version = "0.3.0"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `wallpaparr %s — wallpaper-client voor de Wallpaparr-server
@@ -24,20 +24,25 @@ Gebruik:
   wallpaparr config --server https://<host>        server opslaan
   wallpaparr list  [--tag natuur] [--json]         wallpapers op de server tonen
   wallpaparr monitors                              monitoren tonen
+  wallpaparr profiles                              per monitor: hoeveel wallpapers passen
   wallpaparr set   [--tag natuur] [--random] [--per-monitor]
                                                    één wallpaper zetten
-  wallpaparr rotate --every 30m [--tag natuur] [--per-monitor]
-                                                   blijven wisselen
+  wallpaparr rotate --every 30m [--per-monitor]    blijven wisselen
+
+Per-monitor profielen staan in de config (of in de GUI van de Windows-client): per
+monitor geef je op welke tags meetellen (leeg = alle tags) en welke beeldverhoudingen
+mee mogen (niets aangevinkt = alle). Wallpapers die niet voldoen worden voor die monitor
+overgeslagen — zo kun je een ultrawide alleen 21:9 of 27:9 laten pakken.
 
 Op Windows start een dubbelklik op de exe (zonder argumenten) de tray-app; het
 kruisje verbergt hem naar de systeembalk, rechtsklik geeft het menu (o.a. Afsluiten).
 
 Opties:
   --server URL      server-adres (ook via $WALLPAPARR_SERVER)
-  --tag t1,t2       filter op tag(s); meerdere tags = OF
-  --id ID           specifiek record gebruiken
+  --tag t1,t2       filter op tag(s) — alleen als je niet per monitor werkt
+  --id ID           specifiek record gebruiken (negeert de profielen)
   --random          willekeurige keuze in plaats van de nieuwste
-  --per-monitor     per monitor een andere wallpaper (waar ondersteund)
+  --per-monitor     per monitor een eigen wallpaper (via de profielen)
   --position MODE   fill (standaard) | fit | stretch | center | span | tile
   --every DURATION  wisselinterval voor rotate (bv. 30m, 6h)
 `, version)
@@ -74,6 +79,8 @@ func main() {
 		cmdList(os.Args[2:])
 	case "monitors":
 		cmdMonitors()
+	case "profiles":
+		cmdProfiles(os.Args[2:])
 	case "set":
 		cmdSet(os.Args[2:], false)
 	case "rotate":
@@ -107,11 +114,15 @@ func cmdConfig(args []string) {
 	if o.server != "" {
 		cfg.Server = normalizeServer(o.server)
 	}
-	if err := saveConfig(cfg); err != nil {
+	if err := cfg.Save(); err != nil {
 		fail(err)
 	}
 	path, _ := configPath()
-	fmt.Printf("Config: %s\nServer : %s\n", path, cfg.Server)
+	fmt.Printf("Config : %s\nServer : %s\n", path, cfg.Server)
+	fmt.Printf("Globale tag: %q — per monitor: %v\n", cfg.Tag, cfg.PerMonitor)
+	for _, p := range cfg.Monitors {
+		fmt.Printf("Profiel %-22s %s\n", p.Monitor+":", profielOmschrijving(p))
+	}
 }
 
 func cmdList(args []string) {
@@ -141,7 +152,7 @@ func cmdList(args []string) {
 		if r.Width > 0 {
 			res = fmt.Sprintf("%dx%d", r.Width, r.Height)
 		}
-		fmt.Printf("  %-15s %-38s %-11s %s\n", r.ID, truncate(r.Title, 38), res, r.Tags)
+		fmt.Printf("  %-15s %-34s %-11s %-7s %s\n", r.ID, truncate(r.Title, 34), res, ratioBucket(r), r.Tags)
 	}
 }
 
@@ -152,7 +163,24 @@ func cmdMonitors() {
 	}
 	fmt.Printf("%d monitor(en):\n", len(mons))
 	for i, m := range mons {
-		fmt.Printf("  [%d] %s\n", i, friendlyMonitor(m))
+		fmt.Printf("  [%d] %s\n", i, monitorLabel(m, i))
+	}
+}
+
+// cmdProfiles laat per monitor zien hoeveel wallpapers er met het profiel van die
+// monitor in aanmerking komen — de snelste controle of je instellingen kloppen.
+func cmdProfiles(args []string) {
+	fs := flag.NewFlagSet("profiles", flag.ExitOnError)
+	var o opts
+	addCommon(fs, &o)
+	_ = fs.Parse(args)
+	cfg := applyDefaults(mustConfig(o.server), o) // --tag moet meetellen
+	regels, err := profielSamenvatting(cfg)
+	if err != nil {
+		fail(err)
+	}
+	for _, r := range regels {
+		fmt.Println(" ", r)
 	}
 }
 
@@ -172,8 +200,33 @@ func cmdSet(args []string, loop bool) {
 		fail(fmt.Errorf("geen server ingesteld — gebruik: wallpaparr config --server http://<ip>"))
 	}
 
+	// een expliciet record: profielen even niet meewegen
+	if o.id != "" {
+		if err := zetSpecifiek(cfg, o.id); err != nil {
+			fail(err)
+		}
+		return
+	}
+
+	laatste := map[string]string{}
+	ronde := func() error {
+		res, meldingen, err := applyRound(cfg, o.random, laatste)
+		for _, m := range meldingen {
+			fmt.Fprintln(os.Stderr, "let op:", m)
+		}
+		if err != nil {
+			return err
+		}
+		for _, r := range res {
+			laatste[r.Monitor] = r.Rec.ID
+			fmt.Printf("%-26s %s (%dx%d)\n", monitorLabel(r.Monitor, r.Index)+":",
+				r.Rec.Title, r.Rec.Width, r.Rec.Height)
+		}
+		return nil
+	}
+
 	if !loop {
-		if err := applyOnce(cfg, o); err != nil {
+		if err := ronde(); err != nil {
 			fail(err)
 		}
 		return
@@ -183,19 +236,35 @@ func cmdSet(args []string, loop bool) {
 	if err != nil {
 		fail(fmt.Errorf("ongeldig interval %q: %v", cfg.Every, err))
 	}
-	laatste := ""
 	for {
-		rec, err := applyChoice(cfg, o.random, laatste)
-		if err != nil {
+		if err := ronde(); err != nil {
 			fmt.Fprintf(os.Stderr, "let op: %v\n", err)
-		} else {
-			laatste = rec.ID
-			fmt.Printf("wallpaper gezet: %s\n", rec.Title)
 		}
 		next := time.Now().Add(d).Format("15:04:05")
 		fmt.Printf("volgende wissel om %s (elke %s) — stoppen met Ctrl+C\n", next, d)
 		time.Sleep(d)
 	}
+}
+
+// zetSpecifiek zet één opgegeven record op alle monitoren (--id).
+func zetSpecifiek(cfg Config, id string) error {
+	recs, err := fetchRecords(cfg.Server, cfg.Tag)
+	if err != nil {
+		return err
+	}
+	if len(recs) == 0 {
+		return fmt.Errorf("geen wallpapers op de server")
+	}
+	kies := pick(recs, 1, id, false)[0]
+	pad, err := download(cfg.Server, kies)
+	if err != nil {
+		return err
+	}
+	if err := setWallpaperAll(pad, cfg.Position); err != nil {
+		return err
+	}
+	fmt.Printf("wallpaper gezet: %s\n", kies.Title)
+	return nil
 }
 
 // applyDefaults: CLI-waarden overschrijven de config, en de config vult aan.
@@ -224,110 +293,7 @@ func applyDefaults(cfg Config, o opts) Config {
 	return cfg
 }
 
-func applyOnce(cfg Config, o opts) error {
-	recs, err := fetchRecords(cfg.Server, cfg.Tag)
-	if err != nil {
-		return err
-	}
-	if len(recs) == 0 {
-		return fmt.Errorf("geen wallpapers gevonden (tag=%q)", cfg.Tag)
-	}
-	want, mons := selectie(cfg)
-	if want > len(recs) {
-		want = len(recs)
-	}
-	chosen := pick(recs, want, o.id, o.random)
-	if err := applyChosen(cfg, chosen, mons); err != nil {
-		return err
-	}
-	rapporteer(chosen, mons)
-	return nil
-}
-
-// applyChoice haalt zelf de wallpapers op en zet er één (of per monitor één).
-// lastID wordt overgeslagen zodat een wissel nooit hetzelfde beeld herhaalt.
-func applyChoice(cfg Config, random bool, lastID string) (Record, error) {
-	recs, err := fetchRecords(cfg.Server, cfg.Tag)
-	if err != nil {
-		return Record{}, err
-	}
-	if len(recs) == 0 {
-		return Record{}, fmt.Errorf("geen wallpapers gevonden (tag=%q)", cfg.Tag)
-	}
-	want, mons := selectie(cfg)
-	if want > len(recs) {
-		want = len(recs)
-	}
-	chosen := nextPick(recs, lastID, want, random)
-	if err := applyChosen(cfg, chosen, mons); err != nil {
-		return Record{}, err
-	}
-	return chosen[0], nil
-}
-
-// selectie bepaalt hoeveel wallpapers er nodig zijn en welke monitoren meedoen.
-func selectie(cfg Config) (int, []string) {
-	want := 1
-	var mons []string
-	if cfg.PerMonitor {
-		if m, err := listMonitors(); err == nil && len(m) > 0 {
-			mons = m
-			want = len(m)
-		}
-	}
-	return want, mons
-}
-
-// applyChosen downloadt de gekozen wallpapers en zet ze als achtergrond.
-func applyChosen(cfg Config, chosen []Record, mons []string) error {
-	paths := make([]string, 0, len(chosen))
-	for _, r := range chosen {
-		p, err := download(cfg.Server, r)
-		if err != nil {
-			return err
-		}
-		paths = append(paths, p)
-	}
-	if len(paths) == 1 || len(mons) <= 1 {
-		return setWallpaperAll(paths[0], cfg.Position)
-	}
-	if err := setAllMonitors(mons, paths, cfg.Position); err != nil {
-		fmt.Fprintf(os.Stderr, "let op: per-monitor niet gelukt (%v) — zelfde wallpaper op alle monitoren\n", err)
-		return setWallpaperAll(paths[0], cfg.Position)
-	}
-	return nil
-}
-
-func rapporteer(chosen []Record, mons []string) {
-	if len(chosen) == 1 || len(mons) <= 1 {
-		fmt.Printf("wallpaper gezet: %s\n", chosen[0].Title)
-		return
-	}
-	for i, m := range mons {
-		fmt.Printf("monitor %d (%s): %s\n", i, friendlyMonitor(m), chosen[i%len(chosen)].Title)
-	}
-}
-
-func setAllMonitors(mons []string, paths []string, position string) error {
-	ok := 0
-	for i, m := range mons {
-		p := paths[i%len(paths)]
-		if err := setMonitorWallpaper(m, i, p, position); err != nil {
-			if i == 0 {
-				return err
-			}
-			fmt.Fprintf(os.Stderr, "  monitor %s overgeslagen: %v\n", m, err)
-			continue
-		}
-		ok++
-	}
-	if ok == 0 {
-		return fmt.Errorf("geen enkele monitor kon apart worden ingesteld")
-	}
-	return nil
-}
-
-// pick kiest de records die gezet gaan worden (CLI: expliciet id of willekeurig).
+// pick kiest de records die gezet gaan worden (expliciet id of willekeurig).
 func pick(recs []Record, want int, id string, random bool) []Record {
 	if id != "" {
 		for _, r := range recs {
