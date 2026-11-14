@@ -161,6 +161,9 @@ const (
 // idRatioBase + 0..6 = de verhouding-checkboxen (1:1 t/m 27:9 + overig)
 const idRatioBase = 1100
 
+// maxMonitorRijen: aantal monitorrijen dat het venster toont (elke rij = één monitor)
+const maxMonitorRijen = 6
+
 // ratioNamen volgt de web-UI; "overig" vangt alles buiten de standaardgroepen.
 var ratioNamen = []string{"1:1", "1:2", "2:3", "16:9", "21:9", "27:9", "overig"}
 
@@ -298,20 +301,22 @@ type guiState struct {
 	status string
 	cmds   chan guiCmd
 
-	monitors       []string // monitornamen (door de scheduler gevuld; COM hoort daar)
-	gekozenMonitor string   // welk profiel staat nu in de controls ("" = standaard)
+	monitors    []string // monitornamen (door de scheduler gevuld; COM hoort daar)
+	rijenGevuld bool     // staan de monitorrijen al gevuld?
 
-	editServer      uintptr
-	editTag         uintptr
-	editMinutes     uintptr
-	chkMonitor      uintptr
-	chkRandom       uintptr
-	chkHidden       uintptr
-	cmbPosition     uintptr
-	lblStatus       uintptr
-	cmbProfiel      uintptr
-	editProfielTags uintptr
-	chkRatios       [7]uintptr
+	editServer  uintptr
+	editTag     uintptr
+	editMinutes uintptr
+	chkMonitor  uintptr
+	chkRandom   uintptr
+	chkHidden   uintptr
+	cmbPosition uintptr
+	lblStatus   uintptr
+
+	// één rij per monitor: naam, tagveld en de verhouding-checkboxen
+	lblMonitor [maxMonitorRijen]uintptr
+	editTags   [maxMonitorRijen]uintptr
+	chkRatios  [maxMonitorRijen][7]uintptr
 }
 
 var g = &guiState{cmds: make(chan guiCmd, 8)}
@@ -326,81 +331,82 @@ func (s *guiState) getMonitors() []string {
 	return append([]string(nil), s.monitors...)
 }
 
-/* ---------- profiel per monitor (UI-thread) ---------- */
+/* ---------- profiel per monitor (één rij per monitor) ---------- */
 
-// leesProfielVelden haalt het profiel van de NU gekozen monitor uit de controls.
-func leesProfielVelden() MonitorProfiel {
-	p := MonitorProfiel{Monitor: g.gekozenMonitor, Tags: tagList(getText(g.editProfielTags))}
-	for i, naam := range ratioNamen {
-		if g.chkRatios[i] != 0 && call(pSendMessageW, g.chkRatios[i], bmGetCheck, 0, 0) == bstChecked {
-			p.Ratios = append(p.Ratios, naam)
-		}
-	}
-	return p
-}
-
-// zetProfielVelden toont het profiel van een monitor in de controls.
-func zetProfielVelden(p MonitorProfiel) {
-	if g.editProfielTags == 0 {
-		return
-	}
-	setText(g.editProfielTags, strings.Join(p.Tags, ","))
-	aan := map[string]bool{}
-	for _, r := range p.Ratios {
-		aan[r] = true
-	}
-	for i, naam := range ratioNamen {
-		v := uintptr(0)
-		if aan[naam] {
-			v = bstChecked
-		}
-		call(pSendMessageW, g.chkRatios[i], bmSetCheck, v, 0)
-	}
-}
-
-// bewaarProfiel slaat de invoer van de huidige monitor op in de config.
-func bewaarProfiel() {
-	if g.editProfielTags == 0 {
-		return
-	}
-	p := leesProfielVelden()
-	if p.Monitor == "" && len(p.Tags) == 0 && len(p.Ratios) == 0 {
-		return // niets ingevuld voor de standaard: niets te bewaren
-	}
-	g.setCfg(g.getCfg().metProfiel(p))
-}
-
-// wisselProfiel bewaart de huidige invoer en laadt het profiel van de nieuwe keuze.
-func wisselProfiel(idx int) {
-	bewaarProfiel()
-	mons := g.getMonitors()
-	if idx >= 1 && idx-1 < len(mons) {
-		g.gekozenMonitor = mons[idx-1]
-	} else {
-		g.gekozenMonitor = ""
-	}
-	zetProfielVelden(g.getCfg().profielVoor(g.gekozenMonitor))
-}
-
-// vulProfielKeuzes zet de monitorlijst in de keuzelijst (0 = standaard).
-func vulProfielKeuzes() {
-	if g.cmbProfiel == 0 {
-		return
-	}
-	call(pSendMessageW, g.cmbProfiel, 0x014B /*CB_RESETCONTENT*/, 0, 0)
-	call(pSendMessageW, g.cmbProfiel, cbAddString, 0, uintptr(unsafe.Pointer(u16("alle monitoren (standaard)"))))
-	mons := g.getMonitors()
+// leesProfielRijen zet de invoer van elke monitorrij in de config.
+func (s *guiState) leesProfielRijen(cfg Config) Config {
+	mons := s.getMonitors()
 	for i, m := range mons {
-		call(pSendMessageW, g.cmbProfiel, cbAddString, 0, uintptr(unsafe.Pointer(u16(monitorLabel(m, i)))))
+		if i >= maxMonitorRijen || s.editTags[i] == 0 {
+			break
+		}
+		p := MonitorProfiel{Monitor: m, Tags: tagList(getText(s.editTags[i]))}
+		for j, naam := range ratioNamen {
+			if call(pSendMessageW, s.chkRatios[i][j], bmGetCheck, 0, 0) == bstChecked {
+				p.Ratios = append(p.Ratios, naam)
+			}
+		}
+		cfg = cfg.metProfiel(p)
 	}
-	idx := 0
-	for i, m := range mons {
-		if m == g.gekozenMonitor {
-			idx = i + 1
+	return cfg
+}
+
+// rijHandles geeft alle controls van monitorrij i.
+func (s *guiState) rijHandles(i int) []uintptr {
+	uit := []uintptr{s.lblMonitor[i], s.editTags[i]}
+	for _, h := range s.chkRatios[i] {
+		uit = append(uit, h)
+	}
+	return uit
+}
+
+// zetProfielRijen toont per monitor een rij met het bijbehorende profiel.
+func (s *guiState) zetProfielRijen(cfg Config) {
+	mons := s.getMonitors()
+	if len(mons) > maxMonitorRijen {
+		guiLog("let op: %d monitoren gevonden; het venster toont er %d — de rest gebruikt alle tags/verhoudingen",
+			len(mons), maxMonitorRijen)
+	}
+	for i := 0; i < maxMonitorRijen; i++ {
+		if s.editTags[i] == 0 {
+			continue
+		}
+		if i >= len(mons) {
+			for _, h := range s.rijHandles(i) {
+				call(pShowWindow, h, swHide)
+			}
+			continue
+		}
+		p := cfg.profielVoor(mons[i])
+		setText(s.lblMonitor[i], monitorLabel(mons[i], i))
+		setText(s.editTags[i], strings.Join(p.Tags, ","))
+		aan := map[string]bool{}
+		for _, r := range p.Ratios {
+			aan[r] = true
+		}
+		for j, naam := range ratioNamen {
+			v := uintptr(0)
+			if aan[naam] {
+				v = bstChecked
+			}
+			call(pSendMessageW, s.chkRatios[i][j], bmSetCheck, v, 0)
+		}
+		for _, h := range s.rijHandles(i) {
+			call(pShowWindow, h, swShow)
 		}
 	}
-	call(pSendMessageW, g.cmbProfiel, cbSetCurSel, uintptr(idx), 0)
-	zetProfielVelden(g.getCfg().profielVoor(g.gekozenMonitor))
+}
+
+// verwerkMonitorLijst tekent de rijen; bij een verversing eerst de invoer veiligstellen.
+func (s *guiState) verwerkMonitorLijst() {
+	if s.rijenGevuld {
+		cfg := s.leesProfielRijen(s.getCfg())
+		s.setCfg(cfg)
+		s.zetProfielRijen(cfg)
+		return
+	}
+	s.rijenGevuld = true
+	s.zetProfielRijen(s.getCfg())
 }
 func (s *guiState) setStatus(m string) {
 	s.mu.Lock()
@@ -670,39 +676,40 @@ func maakControls() {
 		call(pSendMessageW, g.chkRandom, bmSetCheck, bstChecked, 0)
 	}
 
-	// --- profiel per monitor (geldt als "per monitor" aanstaat) --------------
-	maakLabel("Profiel voor monitor", 16, 218)
-	g.cmbProfiel = makeControl("COMBOBOX", "", cbsDropDownList|wsTabStop|wsVScroll, 196, 215, 260, 200, idProfielMonitor)
-	call(pSendMessageW, g.cmbProfiel, 0x0030, vet, 1)
-	call(pSendMessageW, g.cmbProfiel, cbAddString, 0, uintptr(unsafe.Pointer(u16("alle monitoren (standaard)"))))
-	call(pSendMessageW, g.cmbProfiel, cbSetCurSel, 0, 0)
-
-	maakLabel("Tags (leeg = alle tags)", 16, 250)
-	g.editProfielTags = maakEdit("", 196, 247, 260, idProfielTags, 0)
-
-	maakLabel("Verhoudingen (niets = alle)", 16, 282)
-	for i, naam := range ratioNamen {
-		x := 196 + (i%4)*98
-		y := 279 + (i/4)*24
-		g.chkRatios[i] = makeControl("BUTTON", naam, bsAutoCheckBox|wsTabStop, x, y, 94, 21, idRatioBase+uintptr(i))
-		call(pSendMessageW, g.chkRatios[i], 0x0030, vet, 1)
+	// --- profiel per monitor: één rij per monitor ----------------------------
+	maakLabel("Monitor", 16, 206)
+	maakLabel("Tags (leeg = alle tags)", 164, 206)
+	maakLabel("Verhoudingen (niets = alle)", 354, 206)
+	for i := 0; i < maxMonitorRijen; i++ {
+		y := 228 + i*28
+		g.lblMonitor[i] = makeControl("STATIC", "", ssLeft, 16, y+4, 142, 20, 0)
+		call(pSendMessageW, g.lblMonitor[i], 0x0030, vet, 1)
+		g.editTags[i] = maakEdit("", 164, y, 182, 0, 0)
+		for j, naam := range ratioNamen {
+			g.chkRatios[i][j] = makeControl("BUTTON", naam, bsAutoCheckBox|wsTabStop, 354+j*62, y+2, 62, 21, 0)
+			call(pSendMessageW, g.chkRatios[i][j], 0x0030, vet, 1)
+		}
+		for _, h := range g.rijHandles(i) {
+			call(pShowWindow, h, swHide)
+		}
 	}
 
-	btnSave := makeControl("BUTTON", "Opslaan en toepassen", bsPushButton|wsTabStop, 16, 340, 150, 28, idSave)
-	btnNow := makeControl("BUTTON", "Nu wisselen", bsPushButton|wsTabStop, 176, 340, 105, 28, idApplyNow)
-	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 291, 340, 140, 28, idTest)
-	btnCheck := makeControl("BUTTON", "Profielen controleren", bsPushButton|wsTabStop, 441, 340, 145, 28, idProfielCheck)
+	btnSave := makeControl("BUTTON", "Opslaan en toepassen", bsPushButton|wsTabStop, 16, 406, 150, 28, idSave)
+	btnNow := makeControl("BUTTON", "Nu wisselen", bsPushButton|wsTabStop, 176, 406, 105, 28, idApplyNow)
+	btnTest := makeControl("BUTTON", "Verbinding testen", bsPushButton|wsTabStop, 291, 406, 140, 28, idTest)
+	btnCheck := makeControl("BUTTON", "Profielen controleren", bsPushButton|wsTabStop, 441, 406, 145, 28, idProfielCheck)
 	for _, b := range []uintptr{btnSave, btnNow, btnTest, btnCheck} {
 		call(pSendMessageW, b, 0x0030, vet, 1)
 	}
 
-	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 378, 570, 110, idStatus)
+	g.lblStatus = makeControl("STATIC", "klaar", ssLeft, 16, 444, 770, 120, idStatus)
 	call(pSendMessageW, g.lblStatus, 0x0030, vet, 1)
 }
 
 func readForm() Config {
-	bewaarProfiel() // de invoer van de gekozen monitor hoort in de config
-	cfg := g.getCfg()
+	// de invoer van de monitorrijen hoort in de config
+	cfg := g.leesProfielRijen(g.getCfg())
+	g.setCfg(cfg)
 	cfg.Server = normalizeServer(getText(g.editServer))
 	cfg.Tag = getText(g.editTag)
 	if n, err := strconv.Atoi(getText(g.editMinutes)); err == nil && n >= 0 {
@@ -725,13 +732,6 @@ func readForm() Config {
 
 func onCommand(id, code uint16) {
 	switch id {
-	case idProfielMonitor:
-		if code == 1 { // CBN_SELCHANGE: andere monitor gekozen
-			idx := int(call(pSendMessageW, g.cmbProfiel, cbGetCurSel, 0, 0))
-			if idx >= 0 {
-				wisselProfiel(idx)
-			}
-		}
 	case idProfielCheck:
 		showVenster()
 		g.cmds <- guiCmd{kind: "monitors"}
@@ -778,7 +778,7 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 		onCommand(uint16(wparam&0xffff), uint16((wparam>>16)&0xffff))
 		return 0
 	case msgMonitors:
-		vulProfielKeuzes()
+		g.verwerkMonitorLijst()
 		return 0
 	case msgStatus:
 		updateStatus()
@@ -997,7 +997,7 @@ func runGUI() error {
 	hwnd := call(pCreateWindowExW, 0,
 		uintptr(unsafe.Pointer(klasse)),
 		uintptr(unsafe.Pointer(u16("Wallpaparr — wallpaper-client"))),
-		style, uintptr(cwUseDefault), uintptr(cwUseDefault), 620, 570, 0, 0, hInst, 0)
+		style, uintptr(cwUseDefault), uintptr(cwUseDefault), 820, 620, 0, 0, hInst, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("venster maken mislukt")
 	}

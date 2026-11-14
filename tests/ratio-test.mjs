@@ -110,6 +110,42 @@ $("#search").dispatchEvent(new w.Event("input"));
 q("#tags .chip").find((c) => c.textContent.startsWith("natuur")).click();
 check("tagfilter + verhoudingfilter combineren (alleen R1 heeft beide)", q(".card").length === 1 && titels() === "R1", titels());
 
+/* ---------- tagfilters volgen het verhoudingfilter ---------- */
+const chipNamen = () => q("#tags .chip").map((c) => c.textContent.replace(/\d+$/, ""));
+
+// eerst schoon beginnen: verhoudingfilter uit en tagfilter leeg
+const schoon = () => {
+  const aan = q("#ratios .ratio.on")[0];
+  if (aan) aan.click();
+  const alles = q("#tags .chip").find((c) => c.textContent.startsWith("alles"));
+  if (alles) alles.click();
+};
+schoon();
+// let op: chipNamen() toont de BESCHIKBARE tags; actieve filters herken je aan .on
+check("schone start: geen verhouding- of tagfilter",
+  q("#ratios .ratio.on").length === 0 &&
+  q("#tags .chip.on").length === 1 &&
+  q("#tags .chip.on")[0].textContent.startsWith("alles"),
+  "ratio.on=" + q("#ratios .ratio.on").length + " tags.on=" + q("#tags .chip.on").map((c) => c.textContent).join("|"));
+
+ratio("16:9").click();
+check("16:9 actief: tag uit die selectie zichtbaar (natuur)", chipNamen().includes("natuur"), chipNamen().join(","));
+
+ratio("21:9").click();
+check("21:9 actief: alleen tags binnen die selectie (geen natuur)", !chipNamen().includes("natuur"), chipNamen().join(","));
+
+// tag aanzetten en dan van verhouding wisselen: de chip moet blijven staan, anders is hij niet uit te zetten
+ratio("16:9").click();
+q("#tags .chip").find((c) => c.textContent.startsWith("natuur")).click();
+check("tagfilter actief binnen 16:9", q(".card").length === 1 && titels() === "R1", titels());
+
+ratio("21:9").click();
+const actief = q("#tags .chip").find((c) => c.textContent.startsWith("natuur"));
+check("actieve tag blijft zichtbaar (met 0) om hem uit te zetten", !!actief && actief.textContent.endsWith("0"),
+  actief ? actief.textContent : "ontbreekt");
+if (actief) actief.click();
+check("tag uitzetten lukt vanuit die stand", q(".card").length === 2 && titels() === "R2,R3", titels());
+
 let fout = 0;
 for (const r of ok) {
   if (!r.waar) fout++;

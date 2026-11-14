@@ -31,6 +31,11 @@ bijvoorbeeld 2912×1632 bij 16:9 hoort. De groepen zijn symmetrisch: 9:16 hoort 
 buurt komen (bijv. 4:3) verschijnen onder een extra knop **overig**, die alleen verschijnt
 als zulke afbeeldingen er echt zijn.
 
+Zodra er een verhoudingfilter actief is, laat de tagbalk **alleen de tags zien die binnen
+die selectie voorkomen** — je filtert dus nooit op een tag die in deze verhouding toch niet
+voorkomt. Een tag die je al had aangevinkt blijft staan (met teller 0) zodat je hem kunt
+blijven uitzetten.
+
 ## Client
 
 ```bash
@@ -102,8 +107,11 @@ die alleen 21:9 of 27:9 wil terwijl de rest van je schermen alles mag pakken. Vo
 praktijk: op de live bibliotheek van 345 wallpapers verdeelt de client ze als 231× 21:9,
 75× 16:9 en 39× 27:9 (3808×1280 valt binnen de tolerantie in de 27:9-groep).
 
-Instellen kan in de GUI (Windows): kies de monitor in de keuzelijst, vul tags in, vink de
-verhoudingen aan en klik **Opslaan en toepassen**. Met **Profielen controleren** (knop of
+Instellen kan in de GUI (Windows): elke monitor staat op **een eigen regel** met daarachter
+een tagveld en de verhouding-vakjes. Invullen en op **Opslaan en toepassen** klikken is
+genoeg; wisselen tussen monitoren kan dus niet meer misgaan. Het aantal rijen is
+`maxMonitorRijen` (standaard 6); zijn er meer monitoren, dan gebruikt de rest alle tags en
+verhoudingen en staat dat in het logbestand. Met **Profielen controleren** (knop of
 tray-menu-item) zie je per monitor hoeveel wallpapers er met die instellingen in aanmerking
 komen. In de JSON-config staat hetzelfde onder `"monitors"`:
 

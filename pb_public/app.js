@@ -151,12 +151,19 @@ function visibleItems() {
 }
 
 function renderTags() {
+  // Met een actief verhoudingfilter alleen de tags die binnen die selectie voorkomen.
+  // Al actieve tags blijven altijd staan, anders kun je ze niet meer uitzetten.
+  const basis = state.ratio ? state.items.filter((r) => bucketOf(r) === state.ratio) : state.items;
   const counts = new Map();
-  for (const r of state.items) {
+  const vind = (t) => [...counts.keys()].find((k) => k.toLowerCase() === t.toLowerCase());
+  for (const r of basis) {
     for (const t of tagList(r.tags)) {
-      const key = [...counts.keys()].find((k) => k.toLowerCase() === t.toLowerCase()) || t;
+      const key = vind(t) || t;
       counts.set(key, (counts.get(key) || 0) + 1);
     }
+  }
+  for (const t of state.activeTags) {
+    if (!vind(t)) counts.set(t, 0);
   }
   const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const nav = $("#tags");
