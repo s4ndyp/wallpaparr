@@ -118,12 +118,11 @@ const (
 	tpmRightButton = 0x0002
 	tpmReturnCmd   = 0x0100
 
-	nimAdd     = 0
-	nimDelete  = 2
-	nifMessage = 0x01
-	nifInfo    = 0x10
-	nifIcon    = 0x02
-	nifTip     = 0x04
+	nifInfo            = 0x10
+	notifyIconVersion4 = 4
+	ninSelect          = 0x0400 // WM_USER + 0: het icoon is gekozen (v4)
+	ninKeySelect       = 0x0401
+	wmContextMenu      = 0x007B
 
 	idiApplication = 32512
 )
@@ -253,11 +252,6 @@ func u16(s string) *uint16 {
 		p, _ = syscall.UTF16PtrFromString("")
 	}
 	return p
-}
-
-func putStr(dst []uint16, s string) {
-	src, _ := syscall.UTF16FromString(s)
-	copy(dst, src)
 }
 
 // guiLog schrijft naar %LOCALAPPDATA%\wallpaparr\gui.log — de tray-variant heeft
@@ -399,6 +393,7 @@ func (s *guiState) setStatus(m string) {
 var trayHicon uintptr
 var verbergHintGegeven bool
 var trayTipTekst = "Wallpaparr v" + version
+var trayStatus = "klaar"
 
 // taskbarCreatedMsg: door Windows geregistreerd bericht dat de taakbalk opnieuw is
 // gestart. Zonder heraanmelding is het icoon daarna definitief weg.
@@ -442,44 +437,58 @@ func trayData(cb func(*notifyIconData)) {
 }
 
 func trayAdd(status string) {
-	trayTipTekst = "Wallpaparr v" + version + " — " + status
+	trayStatus = kortStatus(status)
+	trayTipTekst = "Wallpaparr v" + version + " — " + trayStatus
 	trayHicon = loadIcon(trayMaat())
-	guiLog("tray: icoon-handle=%#x, maat=%d", trayHicon, trayMaat())
+	guiLog("tray: icoon-handle=%#x, maat=%d, tip=%q (%d tekens)", trayHicon, trayMaat(), trayTipTekst, len([]rune(trayTipTekst)))
 	trayData(func(nid *notifyIconData) {
-		nid.UFlags = nifMessage | nifIcon | nifTip
+		nid.UFlags = nifMessage | nifIcon | nifTip | nifShowTip
 		nid.UCallbackMessage = trayMsg
 		nid.HIcon = trayHicon
 		putStr(nid.SzTip[:], trayTipTekst)
 		if r := call(pShellNotifyIconW, nimAdd, uintptr(unsafe.Pointer(nid))); r == 0 {
 			guiLog("tray-icoon toevoegen mislukt (meldingenbal onbereikbaar in deze sessie?)")
+			return
+		}
+		guiLog("tray-icoon toegevoegd")
+		// NOTIFYICON_VERSION_4: het moderne protocol. Zonder dit gedraagt het
+		// icoon zich op Windows 11 onvoorspelbaar (o.a. de standaardtooltip).
+		if r := call(pShellNotifyIconW, nimSetVersion, uintptr(unsafe.Pointer(nid)), notifyIconVersion4); r == 0 {
+			guiLog("NIM_SETVERSION(4) mislukt — valt terug op oud tray-gedrag; menu blijft werken")
 		} else {
-			guiLog("tray-icoon toegevoegd")
+			guiLog("tray-icoon met NOTIFYICON_VERSION_4 aangemeld")
 		}
 	})
 }
 
-// trayHoud meldt het icoon opnieuw aan. Verloor de shell het icoon (hapering bij
-// het opstarten, explorer die herstartte, enz.), dan komt het hiermee terug —
-// zonder dat de gebruiker iets hoeft te doen.
+// trayHoud ververst het bestaande icoon (NIM_MODIFY lukt alleen als het nog
+// bestaat). Is het echt verdwenen, dan pas melden we het opnieuw aan — een
+// herhaalde NIM_ADD zou het icoon telkens als "nieuw" laten behandelen, en dan
+// verhuist het op Windows 11 steeds naar de verborgen iconen.
 func trayHoud() {
 	if trayHicon == 0 {
 		trayHicon = loadIcon(trayMaat())
 	}
+	bestaat := false
 	trayData(func(nid *notifyIconData) {
-		nid.UFlags = nifMessage | nifIcon | nifTip
-		nid.UCallbackMessage = trayMsg
+		nid.UFlags = nifIcon | nifTip | nifShowTip
 		nid.HIcon = trayHicon
 		putStr(nid.SzTip[:], trayTipTekst)
-		call(pShellNotifyIconW, nimAdd, uintptr(unsafe.Pointer(nid)))
+		bestaat = call(pShellNotifyIconW, nimModify, uintptr(unsafe.Pointer(nid))) != 0
 	})
+	if !bestaat {
+		guiLog("tray-icoon was verdwenen — opnieuw aanmelden")
+		trayAdd(trayStatus)
+	}
 }
 
 func trayTip(status string) {
-	trayTipTekst = "Wallpaparr v" + version + " — " + status
+	trayStatus = kortStatus(status)
+	trayTipTekst = "Wallpaparr v" + version + " — " + trayStatus
 	trayData(func(nid *notifyIconData) {
 		nid.UFlags = nifTip
 		putStr(nid.SzTip[:], trayTipTekst)
-		call(pShellNotifyIconW, 2 /*NIM_MODIFY*/, uintptr(unsafe.Pointer(nid)))
+		call(pShellNotifyIconW, nimModify, uintptr(unsafe.Pointer(nid)))
 	})
 }
 
@@ -491,7 +500,7 @@ func trayBalloon(titel, tekst string) {
 		putStr(nid.SzInfoTitle[:], titel)
 		putStr(nid.SzInfo[:], tekst)
 		nid.DwInfoFlags = 0x01 // NIIF_INFO
-		call(pShellNotifyIconW, 1 /*NIM_MODIFY*/, uintptr(unsafe.Pointer(nid)))
+		call(pShellNotifyIconW, nimModify, uintptr(unsafe.Pointer(nid)))
 	})
 }
 
@@ -764,18 +773,24 @@ func wndProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 		if !verbergHintGegeven {
 			verbergHintGegeven = true
 			trayBalloon("Wallpaparr draait nog",
-				"Het venster is verborgen. Klik op het Wallpaparr-icoon in de systeembalk (achter het pijltje ^ naast de klok). "+
-					"Zie je het icoon niet? Start Wallpaparr opnieuw: het venster komt dan terug en je kunt hem daar afsluiten.")
+				"Klik op het Wallpaparr-icoon in de systeembalk (pijltje ^ naast de klok). Geen icoon? Start Wallpaparr opnieuw: het venster komt terug.")
 		}
 		return 0
 	case wmDestroy:
 		call(pPostQuitMessage, 0)
 		return 0
 	case trayMsg:
-		switch uint32(lparam & 0xffff) {
-		case wmLButtonDblClk, wmLButtonUp:
+		// v3: het muisbericht staat in het laagste woord van lparam.
+		// v4: de gebeurtenis staat in het laagste woord van wparam (coördinaten
+		// in lparam). We kijken naar allebei, zodat beide protocollen werken.
+		laag := uint32(lparam & 0xffff)
+		gebeurtenis := uint32(wparam & 0xffff)
+		switch {
+		case laag == wmLButtonDblClk || gebeurtenis == wmLButtonDblClk || gebeurtenis == ninSelect || gebeurtenis == ninKeySelect:
 			showVenster()
-		case wmRButtonUp:
+		case laag == wmLButtonUp:
+			showVenster()
+		case laag == wmRButtonUp || gebeurtenis == wmRButtonUp || gebeurtenis == wmContextMenu:
 			showTrayMenu()
 		}
 		return 0

@@ -60,3 +60,54 @@ func TestIcoonBevatKleineMaten(t *testing.T) {
 		t.Errorf("maat 1024: kreeg %d (ok=%v), wil terugval op 256", e.breedte, ok)
 	}
 }
+
+func TestTrayConstanten(t *testing.T) {
+	// Een verkeerde NIM_*-waarde wist het icoon in plaats van bij te werken.
+	if nimAdd != 0 || nimModify != 1 || nimDelete != 2 || nimSetVersion != 4 {
+		t.Fatalf("NIM-constanten kloppen niet: add=%d modify=%d delete=%d setversion=%d",
+			nimAdd, nimModify, nimDelete, nimSetVersion)
+	}
+	if nifMessage != 1 || nifIcon != 2 || nifTip != 4 || nifShowTip != 0x80 {
+		t.Fatalf("NIF-constanten kloppen niet: message=%#x icon=%#x tip=%#x showtip=%#x",
+			nifMessage, nifIcon, nifTip, nifShowTip)
+	}
+}
+
+func TestPutStrSluitAltijdAf(t *testing.T) {
+	// ruim passend
+	buf := make([]uint16, 8)
+	putStr(buf, "abc")
+	if buf[0] != 'a' || buf[1] != 'b' || buf[2] != 'c' || buf[3] != 0 {
+		t.Errorf("korte tekst verkeerd weggeschreven: %v", buf[:5])
+	}
+	// precies te lang: er MOET een nul in staan (dit was de tray-bug)
+	buf = make([]uint16, 8)
+	putStr(buf, "1234567890")
+	if buf[len(buf)-1] != 0 {
+		t.Errorf("lange tekst zonder afsluitende nul: %v", buf)
+	}
+	// lege tekst
+	buf = make([]uint16, 4)
+	putStr(buf, "")
+	if buf[0] != 0 {
+		t.Errorf("lege tekst levert geen nul: %v", buf)
+	}
+}
+
+func TestKortStatus(t *testing.T) {
+	lang := "draait op de achtergrond — klik op het Wallpaparr-icoon in de systeembalk (of start de app opnieuw om dit venster terug te halen)"
+	uit := kortStatus(lang)
+	if len([]rune(uit)) > 101 {
+		t.Errorf("kortStatus laat %d tekens door", len([]rune(uit)))
+	}
+	if uit == "" {
+		t.Error("kortStatus gaf een lege tekst")
+	}
+	// meerregelig wordt één regel
+	if uit := kortStatus("gezet:\r\nA: beeld"); uit != "gezet:" {
+		t.Errorf("kortStatus nam niet de eerste regel: %q", uit)
+	}
+	if uit := kortStatus("   "); uit != "klaar" {
+		t.Errorf("lege status hoort 'klaar' te zijn: %q", uit)
+	}
+}
