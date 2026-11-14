@@ -15,6 +15,7 @@ RUN unzip /tmp/pb.zip -d /pb/ \
 
 COPY ./pb_public /pb/pb_public
 COPY ./pb_migrations /pb/pb_migrations
+COPY ./pb_hooks /pb/pb_hooks
 
 WORKDIR /pb
 VOLUME ["/pb/pb_data"]
