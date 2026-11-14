@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -63,6 +64,10 @@ var (
 
 func initCOM() error {
 	comOnce.Do(func() {
+		// COM is per-thread en Go kan een goroutine tussen OS-threads verplaatsen:
+		// zonder LockOSThread geeft CoCreateInstance CO_E_NOTINITIALIZED (0x800401f0)
+		// omdat CoInitializeEx op een ándere thread is uitgevoerd.
+		runtime.LockOSThread()
 		hr, _, _ := procCoInitializeEx.Call(0, coinitApartment)
 		if int32(hr) < 0 {
 			comErr = fmt.Errorf("CoInitializeEx mislukt (0x%08x)", uint32(hr))
