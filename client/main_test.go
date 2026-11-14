@@ -186,6 +186,21 @@ func TestMetProfielVervangt(t *testing.T) {
 	}
 }
 
+func TestZonderGebruikt(t *testing.T) {
+	kand := []Record{rec("a"), rec("b"), rec("c")}
+	if got := zonderGebruikt(kand, nil); len(got) != 3 {
+		t.Fatalf("zonder gebruikte beelden moet alles blijven: %v", ids(got))
+	}
+	got := zonderGebruikt(kand, map[string]bool{"a": true, "b": true})
+	if len(got) != 1 || got[0].ID != "c" {
+		t.Fatalf("al gebruikte beelden moeten wegvallen: %v", ids(got))
+	}
+	alles := map[string]bool{"a": true, "b": true, "c": true}
+	if got := zonderGebruikt(kand, alles); len(got) != 3 {
+		t.Fatalf("als alles gebruikt is mag herhalen: %v", ids(got))
+	}
+}
+
 func ids(recs []Record) []string {
 	uit := make([]string, 0, len(recs))
 	for _, r := range recs {

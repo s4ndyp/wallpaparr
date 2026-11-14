@@ -149,6 +149,25 @@ func profielOmschrijving(p MonitorProfiel) string {
 	return tags + " · " + ratios
 }
 
+// zonderGebruikt laat beelden weg die in deze ronde al op een ander scherm staan,
+// zodat identieke monitoren niet allemaal dezelfde afbeelding krijgen. Is alles al
+// gebruikt, dan mag herhalen (liever hetzelfde dan niets).
+func zonderGebruikt(kand []Record, gebruikt map[string]bool) []Record {
+	if len(gebruikt) == 0 {
+		return kand
+	}
+	var uit []Record
+	for _, r := range kand {
+		if !gebruikt[r.ID] {
+			uit = append(uit, r)
+		}
+	}
+	if len(uit) == 0 {
+		return kand
+	}
+	return uit
+}
+
 // resultaat = wat er op één monitor is gezet.
 type resultaat struct {
 	Monitor string
@@ -177,6 +196,7 @@ func applyRound(cfg Config, random bool, laatste map[string]string) ([]resultaat
 
 	var uit []resultaat
 	var meldingen []string
+	gebruikt := map[string]bool{} // binnen deze ronde al geplaatste beelden
 	for i, m := range mons {
 		p := cfg.profielVoor(m)
 		kand := kandidatenVoor(recs, p, cfg.Tag, !cfg.PerMonitor)
@@ -187,7 +207,9 @@ func applyRound(cfg Config, random bool, laatste map[string]string) ([]resultaat
 		// sleutel per monitorrij (niet per naam): bij drie identieke schermen moet
 		// elk scherm een andere afbeelding kunnen krijgen
 		sleutel := monitorLabel(m, i)
+		kand = zonderGebruikt(kand, gebruikt)
 		kies := nextPick(kand, laatste[sleutel], 1, random)[0]
+		gebruikt[kies.ID] = true
 		if laatste != nil {
 			laatste[sleutel] = kies.ID
 		}
