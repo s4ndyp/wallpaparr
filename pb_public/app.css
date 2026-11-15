@@ -259,3 +259,33 @@ body {
 .modus-inhoud { display: flex; flex-direction: column; gap: 6px; padding-left: 22px; }
 .modus-inhoud .ratio-rij { display: flex; flex-wrap: wrap; gap: 8px; }
 .modus-raster-rij { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* vrije schijfruimte van de opslag (hoofdpagina) */
+.diskbalk { display: flex; align-items: center; gap: 10px; max-width: 1500px; margin: 0 auto 12px; }
+.diskbar {
+  flex: 0 1 300px; height: 9px; border-radius: 999px; background: var(--bg-3);
+  border: 1px solid var(--line); overflow: hidden;
+}
+.diskbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s, background .3s; }
+.diskbar i.warm { background: var(--accent-2); }
+.diskbar i.vol { background: var(--danger); }
+#diskinfo { font-variant-numeric: tabular-nums; }
+
+/* venster voor exporteren en importeren */
+.venster {
+  position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+  background: rgba(11, 13, 18, .82); padding: 20px;
+}
+.venster-kaart {
+  width: min(620px, 100%); max-height: 86vh; overflow: auto;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 20px; box-shadow: 0 20px 50px rgba(0, 0, 0, .55);
+}
+.venster-kaart h2 { font-size: 18px; margin-bottom: 8px; }
+.venster-kaart .keuzes { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.venster-kaart .keuzekop { color: var(--dim); font-size: 12.5px; margin-top: 6px; }
+.keuze { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.keuze input { margin-top: 3px; accent-color: var(--accent); }
+.keuze .sub { display: block; }
+.venster-knoppen { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 18px; }
+.venster-knoppen .sub { margin-right: auto; }

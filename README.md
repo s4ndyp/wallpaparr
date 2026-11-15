@@ -36,6 +36,37 @@ die selectie voorkomen** — je filtert dus nooit op een tag die in deze verhoud
 voorkomt. Een tag die je al had aangevinkt blijft staan (met teller 0) zodat je hem kunt
 blijven uitzetten.
 
+### Schijfruimte
+
+Bovenaan de hoofdpagina staat een balkje met de **vrije ruimte van de opslag** waar de
+wallpapers staan (het volume achter `/pb/pb_data`): `12,3 GB vrij van 46,9 GB · 73% vol ·
+wallpapers 1,2 GB`. De balk wordt geel boven 75% en rood boven 90%; de tooltip noemt het
+bestandssysteem en het mountpunt. De server levert dit via `GET /api/wallpaparr/disk`
+(`pb_hooks/disk.pb.js`, `df -kP` in de container).
+
+### Exporteren en importeren
+
+Met **Exporteren** zet je de bibliotheek in één bestand: de wallpapers, hun **tags** én de
+**instellingen** (playlists per scherm en welke playlist aan welk scherm hangt).
+
+| Keuze | Wat je krijgt |
+|---|---|
+| Alles | alle wallpapers + alle instellingen |
+| Alleen huidige selectie | wat je aangevinkt hebt, of (zonder aanvinkjes) wat het filter nu toont |
+| Zip met afbeeldingen | compleet bestand — hiermee zet je alles op een andere server terug |
+| Alleen gegevens (json) | titels, tags, playlists en schermkoppelingen, zonder plaatjes |
+
+De zip wordt in de browser zelf geschreven (geen compressie, `files/w0--naam.jpg` +
+`manifest.json`) en is met gewone gereedschappen te lezen; bij het lezen worden ook
+gecomprimeerde zip-bestanden van andere programma's ondersteund.
+
+**Importeren** accepteert beide vormen. Wallpapers waarvan de bestandsnaam hier al bestaat
+kun je **overslaan** of **bijwerken** (titel + tags; de afbeelding zelf blijft staan). Bij
+een gegevens-only-bestand worden alleen bestaande wallpapers bijgewerkt — er wordt niets
+geüpload. Playlists komen er als **nieuwe** playlists bij en worden op sleutel
+(`device|monitor|index`) weer aan dezelfde schermen gehangen; schermen die de client nog
+niet gemeld heeft, worden overgeslagen.
+
 ## Client
 
 De **server is de baas**: rotatie, tags, verhoudingen, intervallen en keuzes stel je in de
@@ -130,9 +161,18 @@ fullscreen-gedrag, tagverwijdering en de bulkacties.
 
 ```bash
 npm install && node tests/ui-test.mjs     # 27 checks (web-UI)
-node tests/ratio-test.mjs                 # 21 checks (verhoudingfilters)
+node tests/ratio-test.mjs                 # 27 checks (verhoudingfilters)
 node tests/taghelp-test.mjs               # 18 checks (tagvoorstellen)
-node tests/screens-test.mjs               # schermenpaneel
+node tests/screens-test.mjs               # 41 checks (schermenpaneel)
+node tests/export-test.mjs                # 46 checks (schijfbalk, zip, export/import)
+```
+
+Daarnaast is er een proef tegen een **echte** PocketBase in plaats van een mock (zet zelf
+drie wallpapers, een playlist en een scherm neer, exporteert, gooit weg, zet terug):
+
+```bash
+cd ~/dev/pb-test && ./pocketbase serve --http=127.0.0.1:8099 --https= --dir=./pb_data &
+node tests/export-harness.mjs
 ```
 
 Draait ook mee in CI als job `ui-test`.

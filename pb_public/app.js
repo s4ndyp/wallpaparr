@@ -27,6 +27,9 @@ const state = {
   selectMode: false,
 };
 
+// De filters staan ook op window: export.js gebruikt ze voor "huidige selectie".
+window.__wpState = state;
+
 /* ---------- helpers ---------- */
 
 function toast(msg, kind = "") {
@@ -46,6 +49,16 @@ function fileSize(n) {
   if (!n) return "";
   const mb = n / 1048576;
   return mb >= 1 ? mb.toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
+}
+
+/* Leesbare grootte met NL-komma, ook voor gigabytes (schijfruimte). */
+function bytesMenselijk(n) {
+  if (!n && n !== 0) return "?";
+  const gb = n / 1073741824;
+  if (gb >= 1) return gb.toFixed(1).replace(".", ",") + " GB";
+  const mb = n / 1048576;
+  if (mb >= 1) return mb.toFixed(0) + " MB";
+  return Math.max(0, Math.round(n / 1024)) + " KB";
 }
 
 function tagList(s) {
@@ -124,6 +137,37 @@ async function load() {
     render();
   } catch (e) {
     toast(e.message, "err");
+  }
+  laadDisk();
+}
+
+/* ---------- schijfruimte van de server (balkje op de hoofdpagina) ---------- */
+
+async function laadDisk() {
+  const vak = $("#disk");
+  if (!vak) return;
+  try {
+    const r = await fetch("/api/wallpaparr/disk");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    if (!d.beschikbaar) {
+      vak.classList.add("hidden");
+      return;
+    }
+    vak.classList.remove("hidden");
+    const pct = Math.max(0, Math.min(100, d.procent || 0));
+    const balk = $("#diskfill");
+    balk.style.width = pct + "%";
+    balk.className = pct >= 90 ? "vol" : pct >= 75 ? "warm" : "";
+    vak.title =
+      `${bytesMenselijk(d.gebruikt)} gebruikt van ${bytesMenselijk(d.totaal)}` +
+      ` op ${d.bestandssysteem || "?"} (${d.mount || d.pad})`;
+    $("#diskinfo").textContent =
+      `${bytesMenselijk(d.vrij)} vrij van ${bytesMenselijk(d.totaal)} · ${pct}% vol` +
+      (d.wallpapersBytes ? ` · wallpapers ${bytesMenselijk(d.wallpapersBytes)}` : "");
+  } catch (e) {
+    // geen schijfinfo (oudere server): balk verbergen, de rest blijft werken
+    vak.classList.add("hidden");
   }
 }
 
