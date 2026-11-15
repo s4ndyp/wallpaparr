@@ -26,9 +26,18 @@
       <button id="selmode" class="btn" title="Selectievakjes aan- of uitzetten">Selecteren</button>
       <button id="pick" class="btn primary">Uploaden</button>
       <input id="file" type="file" accept="image/*" multiple hidden>
+      <button id="export" class="btn" title="Bibliotheek exporteren: wallpapers, tags en de scherminstellingen">Exporteren</button>
+      <button id="import" class="btn" title="Een eerder exportbestand terugzetten">Importeren</button>
+      <input id="importfile" type="file" accept=".zip,.json,application/zip,application/json" hidden>
       <button id="refresh" class="btn" title="Verversen">Verversen</button>
     </div>
   </header>
+
+  <section id="disk" class="diskbalk hidden">
+    <span class="sub">Opslag</span>
+    <div class="diskbar"><i id="diskfill"></i></div>
+    <span class="sub" id="diskinfo">…</span>
+  </section>
 
   <section class="bar">
     <input id="search" class="input" type="search" placeholder="Zoek op titel of tag…">
@@ -71,5 +80,6 @@
 
   <script src="/app.js"></script>
   <script src="/screens.js"></script>
+  <script src="/export.js"></script>
 </body>
 </html>

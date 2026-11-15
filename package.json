@@ -3,7 +3,7 @@
   "private": true,
   "description": "Headless test van de Wallpaparr web-UI (jsdom)",
   "scripts": {
-    "test": "node tests/ui-test.mjs && node tests/ratio-test.mjs && node tests/taghelp-test.mjs && node tests/screens-test.mjs"
+    "test": "node tests/ui-test.mjs && node tests/ratio-test.mjs && node tests/taghelp-test.mjs && node tests/screens-test.mjs && node tests/export-test.mjs"
   },
   "devDependencies": {
     "jsdom": "^27.0.0"
