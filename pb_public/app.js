@@ -143,6 +143,14 @@ async function load() {
 
 /* ---------- schijfruimte van de server (balkje op de hoofdpagina) ---------- */
 
+// plekVan: welk pad noemen we erbij? Het mountpunt als dat echt bij het datapad hoort,
+// anders het datapad zelf (een mount als "/" zegt niets).
+function plekVan(d) {
+  const mount = d.mount || "";
+  if (mount && mount !== "/" && String(d.pad || "").startsWith(mount)) return mount;
+  return d.pad || mount || "?";
+}
+
 async function laadDisk() {
   const vak = $("#disk");
   if (!vak) return;
@@ -160,8 +168,8 @@ async function laadDisk() {
     balk.style.width = pct + "%";
     balk.className = pct >= 90 ? "vol" : pct >= 75 ? "warm" : "";
     vak.title =
-      `${bytesMenselijk(d.gebruikt)} gebruikt van ${bytesMenselijk(d.totaal)}` +
-      ` op ${d.bestandssysteem || "?"} (${d.mount || d.pad})`;
+      `${bytesMenselijk(d.gebruikt)} gebruikt van ${bytesMenselijk(d.totaal)} — ` +
+      `${d.bestandssysteem || "?"} (${plekVan(d)})`;
     $("#diskinfo").textContent =
       `${bytesMenselijk(d.vrij)} vrij van ${bytesMenselijk(d.totaal)} · ${pct}% vol` +
       (d.wallpapersBytes ? ` · wallpapers ${bytesMenselijk(d.wallpapersBytes)}` : "");

@@ -123,6 +123,7 @@ const disk = await api("/api/wallpaparr/disk");
 console.log("disk:", JSON.stringify(disk));
 eis("schijfendpoint levert vrije ruimte", disk.beschikbaar === true && disk.vrij > 0 && disk.procent > 0);
 eis("schijfendpoint telt de wallpapers", disk.wallpapers >= 3);
+eis("mountpunt hoort bij het datapad", disk.mount === "/" || String(disk.pad).startsWith(disk.mount), disk.mount);
 
 // ---- opruimen ----
 for (const x of naWp) await api(`/api/collections/wallpapers/records/${x.id}`, { method: "DELETE" });
