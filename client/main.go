@@ -23,6 +23,7 @@
 //	wallpaparr status                              wat de server NU op jouw schermen zet
 //	wallpaparr luister                             blijven wisselen (polling, server stuurt)
 //	wallpaparr set --id <id>                       pin: een afbeelding vastzetten
+//	wallpaparr autostart aan|uit|status            wel/niet starten bij het aanmelden (Windows)
 //	wallpaparr version                             versie
 package main
 
@@ -32,7 +33,7 @@ import (
 	"runtime"
 )
 
-const version = "0.8.4"
+const version = "0.9.0"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `wallpaparr %s — wallpaper-client voor de Wallpaparr-server (de server stuurt)
@@ -55,6 +56,7 @@ Gebruik:
   wallpaparr status                              wat de server NU op jouw schermen zet
   wallpaparr luister                             blijven wisselen (polling, server stuurt)
   wallpaparr set --id <id>                       pin: een afbeelding vastzetten
+  wallpaparr autostart aan|uit|status            wel/niet starten bij het aanmelden (Windows)
   wallpaparr version                             versie
 `, version)
 }
@@ -83,6 +85,8 @@ func main() {
 		cmdLuister(os.Args[2:])
 	case "set":
 		cmdSet(os.Args[2:])
+	case "autostart":
+		cmdAutostart(os.Args[2:])
 	case "version":
 		fmt.Println("wallpaparr", version)
 	case "help", "-h", "--help":

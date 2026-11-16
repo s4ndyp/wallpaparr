@@ -92,13 +92,16 @@ wallpaparr luister --poll 5 --monitors "AOC2702,AOC2702"
 # één afbeelding vastzetten (pin; in de web-UI zet je hem terug op rotatie)
 wallpaparr set --id <record-id>
 
+# automatisch starten bij het aanmelden (Windows; in de web-UI-kant niets te doen)
+wallpaparr autostart aan          # of: uit | status
+
 # versie
 wallpaparr version
 ```
 
-Configuratie (server-URL, poll-interval, weergave, verborgen starten) staat in
-`%APPDATA%\wallpaparr\config.json` (Windows) of `~/.config/wallpaparr/config.json` (Unix);
-de server is ook te zetten via de omgevingsvariabele `WALLPAPARR_SERVER`.
+Configuratie (server-URL, poll-interval, weergave, verborgen starten, automatisch starten)
+staat in `%APPDATA%\wallpaparr\config.json` (Windows) of `~/.config/wallpaparr/config.json`
+(Unix); de server is ook te zetten via de omgevingsvariabele `WALLPAPARR_SERVER`.
 
 ### Windows tray-app
 
@@ -107,12 +110,13 @@ Er zijn twee Windows-binaries:
 | Bestand | Waarvoor |
 |---|---|
 | `wallpaparr-windows-amd64.exe` | console-versie: alle CLI-opdrachten én de GUI |
-| `wallpaparr-windows-amd64-tray.exe` | **geen consolevenster** — dubbelklik of zet hem in de opstartmap |
+| `wallpaparr-windows-amd64-tray.exe` | **geen consolevenster** — dubbelklik; automatisch starten zet je aan in het venster |
 
 Het venster toont bovenaan **Wallpaparr v<versie>** (ook in de titelbalk en de tray-tip), de
-server-URL, de weergavemodus, het poll-interval en *bij opstarten alleen in de systeembalk*.
-Daaronder staat **per monitor wat de server er nu op zet en sinds wanneer**. Knoppen:
-**Opslaan**, **Nu synchroniseren**, **Verbinding testen** en **Open web-UI**.
+server-URL, de weergavemodus, het poll-interval, *bij opstarten alleen in de systeembalk* en
+*automatisch starten wanneer ik me aanmeld bij Windows*. Daaronder staat **per monitor wat de
+server er nu op zet en sinds wanneer**. Knoppen: **Opslaan**, **Nu synchroniseren**,
+**Verbinding testen** en **Open web-UI**.
 
 - **Kruisje** = naar de **systeembalk**; de client blijft de server volgen.
 - **Rechtsklik op het tray-icoon**: versie, Instellingen…, Nu synchroniseren,
@@ -125,6 +129,22 @@ Daaronder staat **per monitor wat de server er nu op zet en sinds wanneer**. Kno
 - **Zie je geen icoon?** Windows 11 zet nieuwe tray-iconen standaard in de verborgen-iconenoverloop:
   klik op het pijltje **^** naast de klok en sleep het Wallpaparr-icoon naar de taakbalk (of zet het
   aan via Instellingen → Personalisatie → Taakbalk → Systeembalkpictogrammen).
+
+#### Automatisch starten bij het aanmelden
+
+Het vinkje **Automatisch starten wanneer ik me aanmeld bij Windows** in het venster (of
+`wallpaparr autostart aan`) zet de client in de registersleutel
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Dat werkt zonder beheerdersrechten en
+zonder snelkoppeling in de opstartmap: er komt één tekenreeks met het pad van de draaiende
+exe in, tussen aanhalingstekens zodat een pad met spaties goed blijft werken.
+
+- Het vinkje toont altijd de **echte registerstand**, niet wat er in `config.json` staat — je
+  ziet dus meteen of het goed staat.
+- Start de app na het aanmelden meteen onzichtbaar? Zet dan ook *bij opstarten alleen in de
+  systeembalk* aan.
+- Verplaats of hernoem je de exe, vink dan opnieuw aan (of uit en weer aan) zodat het pad in
+  het register wordt bijgewerkt.
+- `wallpaparr autostart status` laat zien of (en met welk pad) de client in het register staat.
 
 De GUI gebruikt dezelfde `config.json` als de CLI-opdrachten.
 
@@ -140,6 +160,7 @@ GTK/AppIndicator (extra afhankelijkheden en CGO), en dat weegt niet op.
 | Nu een bepaalde afbeelding op een scherm (pin) | web-UI, of `wallpaparr set --id` |
 | Wat staat waar / geschiedenis | web-UI |
 | Server-URL, poll-interval, weergavemodus, verborgen starten | client (venster of `config.json`) |
+| Automatisch starten bij aanmelden (Windows) | client (venster, `wallpaparr autostart` of `config.json`) |
 
 ### Multi-monitor
 

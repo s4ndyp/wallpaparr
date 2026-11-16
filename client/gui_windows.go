@@ -146,6 +146,7 @@ const (
 	idChkMonitor
 	idChkRandom
 	idChkHidden
+	idChkAutostart
 	idStatus
 	idPosition
 	idPoll
@@ -307,11 +308,12 @@ type guiState struct {
 	monitors []string        // monitornamen (door de poller gevuld; COM hoort daar)
 	stats    []monitorStatus // wat de server nu per monitor toont
 
-	editServer  uintptr
-	editPoll    uintptr
-	chkHidden   uintptr
-	cmbPosition uintptr
-	lblStatus   uintptr
+	editServer   uintptr
+	editPoll     uintptr
+	chkHidden    uintptr
+	chkAutostart uintptr
+	cmbPosition  uintptr
+	lblStatus    uintptr
 
 	// één regel per monitor: naam, wat er nu staat en sinds wanneer
 	lblMonitor [maxMonitorRijen]uintptr
@@ -631,7 +633,15 @@ func maakControls() {
 		call(pSendMessageW, g.chkHidden, bmSetCheck, bstChecked, 0)
 	}
 
-	_ = maakLabel("Rotatie, tags, verhoudingen en keuzes stel je in de web-UI in. Deze client meldt alleen zijn schermen en zet wat de server opdraagt.", 16, 140, 780)
+	// automatisch starten bij het aanmelden: het register is de waarheid, niet
+	// config.json (zo zie je meteen of het echt goed staat)
+	g.chkAutostart = makeControl("BUTTON", "Automatisch starten wanneer ik me aanmeld bij Windows", bsAutoCheckBox|wsTabStop, 16, 134, 460, 22, idChkAutostart)
+	call(pSendMessageW, g.chkAutostart, 0x0030, vet, 1)
+	if aan, _ := autostartIngesteld(); aan {
+		call(pSendMessageW, g.chkAutostart, bmSetCheck, bstChecked, 0)
+	}
+
+	_ = maakLabel("Rotatie, tags, verhoudingen en keuzes stel je in de web-UI in. Deze client meldt alleen zijn schermen en zet wat de server opdraagt.", 16, 158, 780)
 
 	maakLabel("Monitor", 16, 184, 280)
 	maakLabel("Toont nu", 300, 184, 290)
@@ -692,6 +702,7 @@ func readForm() Config {
 		cfg.Poll = 5
 	}
 	cfg.StartHidden = call(pSendMessageW, g.chkHidden, bmGetCheck, 0, 0) == bstChecked
+	cfg.Autostart = call(pSendMessageW, g.chkAutostart, bmGetCheck, 0, 0) == bstChecked
 	sel := int(call(pSendMessageW, g.cmbPosition, cbGetCurSel, 0, 0))
 	if sel >= 0 && sel < len(posities) {
 		cfg.Position = posities[sel]
@@ -711,6 +722,11 @@ func onCommand(id, code uint16) {
 		}
 		g.setCfg(cfg)
 		zetTitel()
+		// het register bijwerken en de uitkomst melden (het statusvak kan dit
+		// even later door een poll worden overschreven; gui.log houdt het vast)
+		regel := pasAutostartAan(cfg.Autostart)
+		guiLog("autostart: %s", regel)
+		g.setStatus("opgeslagen — " + regel)
 		g.cmds <- guiCmd{kind: "sync"}
 	case idApplyNow:
 		g.cmds <- guiCmd{kind: "sync"}
@@ -1020,8 +1036,10 @@ func runGUI() error {
 		_ = cfg.Save()
 	}
 	g.setDevice(cfg.Device)
+	// het register is de waarheid voor "automatisch starten", niet config.json
+	cfg.Autostart, _ = autostartIngesteld()
 	g.setCfg(cfg)
-	guiLog("start: versie=%s server=%q poll=%ds verborgen=%v", version, cfg.Server, pollSeconden(cfg), cfg.StartHidden)
+	guiLog("start: versie=%s server=%q poll=%ds verborgen=%v autostart=%v", version, cfg.Server, pollSeconden(cfg), cfg.StartHidden, cfg.Autostart)
 
 	icon := loadIcon(32)
 	hInst := call(pGetModuleHandleW, 0)

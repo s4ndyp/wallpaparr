@@ -1,6 +1,41 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestAutostartRegister(t *testing.T) {
+	// echte uitvoer van `reg query` als de waarde er staat
+	uit := "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n" +
+		"    Wallpaparr    REG_SZ    \"C:\\Program Files\\Wallpaparr\\wallpaparr-windows-amd64-tray.exe\"\r\n\r\n"
+	aan, pad := parseRegQuery(uit)
+	if !aan {
+		t.Fatal("bestaande Run-waarde niet herkend")
+	}
+	if pad != `C:\Program Files\Wallpaparr\wallpaparr-windows-amd64-tray.exe` {
+		t.Errorf("pad = %q — de aanhalingstekens of spaties zijn verkeerd gelezen", pad)
+	}
+
+	// de waarde staat er niet: reg eindigt dan met exitcode 1 en een foutregel
+	if aan, pad := parseRegQuery("ERROR: The system was unable to find the specified registry key or value.\r\n"); aan || pad != "" {
+		t.Errorf("ontbrekende waarde levert aan=%v pad=%q", aan, pad)
+	}
+	if aan, _ := parseRegQuery(""); aan {
+		t.Error("lege uitvoer hoort 'niet ingesteld' te zijn")
+	}
+
+	// de opdrachtregels
+	add := strings.Join(regAddArgs(`C:\Tools\wallpaparr.exe`), " ")
+	if !strings.Contains(add, `add HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) ||
+		!strings.Contains(add, `/v Wallpaparr /t REG_SZ`) ||
+		!strings.Contains(add, `/d "C:\Tools\wallpaparr.exe" /f`) {
+		t.Errorf("reg add ziet er verkeerd uit: %s", add)
+	}
+	if strings.Join(regDeleteArgs(), " ") != `delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Wallpaparr /f` {
+		t.Errorf("reg delete ziet er verkeerd uit: %v", regDeleteArgs())
+	}
+}
 
 func TestVerkortMonitor(t *testing.T) {
 	gevallen := []struct {

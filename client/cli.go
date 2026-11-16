@@ -195,6 +195,7 @@ func cmdSet(args []string) {
 	fmt.Printf("Pin gezet: %s (%dx%d) op alle %d monitoren\n", kies.Title, kies.Width, kies.Height, len(mons))
 }
 
+// parseMonitoren splitst een kommagescheiden monitorlijst.
 func parseMonitoren(s string) []string {
 	if s == "" {
 		return nil
@@ -244,6 +245,50 @@ func formatSince(s string) string {
 		return s
 	}
 	return t.Format("15:04")
+}
+
+// cmdAutostart leest of zet het automatisch starten bij het aanmelden. Op Windows
+// is dat de Run-sleutel van de gebruiker; op Unix bestaat de optie niet.
+func cmdAutostart(args []string) {
+	keuze := "status"
+	if len(args) > 0 {
+		keuze = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+
+	cfg, _ := loadConfig()
+	toonStand := func() {
+		aan, pad := autostartIngesteld()
+		if aan {
+			fmt.Printf("Automatisch starten: aan — %s\n", pad)
+		} else {
+			fmt.Printf("Automatisch starten: uit\n")
+		}
+	}
+
+	switch keuze {
+	case "", "status":
+		toonStand()
+	case "aan", "on", "ja", "true":
+		if err := zetAutostart(""); err != nil {
+			fail(err)
+		}
+		cfg.Autostart = true
+		if err := cfg.Save(); err != nil {
+			fail(err)
+		}
+		toonStand()
+	case "uit", "off", "nee", "false":
+		if err := verwijderAutostart(); err != nil {
+			fail(err)
+		}
+		cfg.Autostart = false
+		if err := cfg.Save(); err != nil {
+			fail(err)
+		}
+		toonStand()
+	default:
+		fail(fmt.Errorf("onbekende keuze %q — gebruik: wallpaparr autostart [aan|uit|status]", keuze))
+	}
 }
 
 // cmdLuister: de luister-loop — de server is de baas, de client pollt.

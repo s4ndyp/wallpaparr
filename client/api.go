@@ -65,6 +65,7 @@ type Config struct {
 	PerMonitor  bool             `json:"per_monitor"`
 	Random      bool             `json:"random"`
 	StartHidden bool             `json:"start_hidden"`
+	Autostart   bool             `json:"autostart"`
 	Every       string           `json:"every"`
 	Position    string           `json:"position"`
 	Monitors    []MonitorProfiel `json:"monitors,omitempty"`
