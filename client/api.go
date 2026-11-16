@@ -324,12 +324,25 @@ func patchScreen(server, id string, s Screen) error {
 	return nil
 }
 
+// schermFilter bouwt het PocketBase-filter waarmee een scherm op zijn sleutel
+// wordt opgezocht. Twee valkuilen, beide al een keer misgegaan:
+//
+//   - de backslash is in een PocketBase-filterliteral een escape-teken. Een
+//     schermsleutel op Windows bevat er twee (`\\?\DISPLAY#...`), dus die moeten
+//     verdubbeld worden; met één backslash vindt de server de sleutel nooit, gaat
+//     de client hem opnieuw POSTen (HTTP 400: value must be unique) en werkt het
+//     scherm nooit meer bij. Bewezen tegen de echte server (PB 0.40.6).
+//   - daarna mag er niet nóg een keer geëscaped worden: de filterwaarde gaat
+//     precies één keer door url.QueryEscape.
+func schermFilter(key string) string {
+	return "(key='" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(key) + "')"
+}
+
 func screenByKey(server, key string) (*Screen, error) {
 	if server == "" {
 		return nil, fmt.Errorf("geen server ingesteld")
 	}
-	filter := fmt.Sprintf("(key='%s')", strings.ReplaceAll(key, "'", "\\'"))
-	u := fmt.Sprintf("%s/api/collections/screens/records?perPage=1&filter=%s", server, url.QueryEscape(filter))
+	u := fmt.Sprintf("%s/api/collections/screens/records?perPage=1&filter=%s", server, url.QueryEscape(schermFilter(key)))
 	var lr recordsResponse[Screen]
 	if err := getJSON(u, &lr); err != nil {
 		return nil, err

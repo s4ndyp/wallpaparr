@@ -37,6 +37,28 @@ func TestAutostartRegister(t *testing.T) {
 	}
 }
 
+// TestSchermFilter: de backslashes in een Windows-schermsleutel moeten in het
+// PocketBase-filter verdubbeld worden, anders vindt de server het scherm nooit en
+// blijft de client het opnieuw POSTen (HTTP 400 value must be unique).
+func TestSchermFilter(t *testing.T) {
+	const bs = `\`
+	// een sleutel zoals de client hem op Windows maakt: \\?\DISPLAY#...
+	key := "SANDMANPC|" + bs + bs + "?" + bs + "DISPLAY#AOC2702#5&24a0a36a&0&UID4352#{guid}|0"
+	// ... en in het filter staat elke backslash dubbel
+	wil := "(key='SANDMANPC|" + bs + bs + bs + bs + "?" + bs + bs + "DISPLAY#AOC2702#5&24a0a36a&0&UID4352#{guid}|0')"
+	if uit := schermFilter(key); uit != wil {
+		t.Errorf("schermFilter = %q, wil %q", uit, wil)
+	}
+	// een apostrof in de sleutel mag het filter niet openbreken
+	if uit := schermFilter(`a'b`); uit != `(key='a\'b')` {
+		t.Errorf("apostrof verkeerd geëscaped: %q", uit)
+	}
+	// geen backslash: niets verandert
+	if uit := schermFilter("PC|HDMI-1|0"); uit != "(key='PC|HDMI-1|0')" {
+		t.Errorf("eenvoudige sleutel: %q", uit)
+	}
+}
+
 func TestVerkortMonitor(t *testing.T) {
 	gevallen := []struct {
 		in   string
